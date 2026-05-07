@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --epson-blue: #003087;
+  --epson-blue-mid: #0047BB;
+  --epson-blue-light: #1a5fd4;
+  --epson-blue-sidebar: #002F87;
+  --epson-blue-card: #EEF3FF;
+  --epson-accent: #3B73D8;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background: #f4f6fb;
+    color: #1a1a2e;
+  }
+}
+
+@layer components {
+  .sidebar {
+    background: linear-gradient(180deg, #002F87 0%, #001f5e 100%);
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-white/70 font-medium text-sm transition-all duration-200 cursor-pointer;
+  }
+
+  .nav-item:hover {
+    @apply bg-white/10 text-white;
+  }
+
+  .nav-item.active {
+    @apply bg-white text-epson-blue font-semibold;
+  }
+
+  .chat-bubble-bot {
+    @apply bg-white rounded-2xl rounded-tl-sm shadow-card px-5 py-4 max-w-[70%] text-sm text-gray-800 leading-relaxed;
+  }
+
+  .chat-bubble-user {
+    @apply bg-epson-blue-mid text-white rounded-2xl rounded-tr-sm px-5 py-4 max-w-[70%] text-sm leading-relaxed;
+  }
+
+  .faq-chip {
+    @apply bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs px-4 py-2 rounded-full cursor-pointer transition-all duration-200 whitespace-nowrap;
+  }
+
+  .quick-reply-chip {
+    @apply bg-white border border-gray-200 hover:border-epson-accent hover:bg-epson-blue-card text-gray-700 hover:text-epson-blue text-xs px-4 py-2 rounded-full cursor-pointer transition-all duration-200 whitespace-nowrap;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-2xl p-6 shadow-card border border-gray-100;
+  }
+
+  .history-card {
+    @apply bg-white rounded-2xl p-5 shadow-card border border-gray-100 hover:border-epson-accent/30 hover:shadow-card-hover transition-all duration-200 cursor-pointer;
+  }
+
+  .btn-primary {
+    @apply bg-epson-blue-mid hover:bg-epson-blue text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 w-full;
+  }
+
+  .input-field {
+    @apply w-full bg-gray-100 border border-transparent focus:border-epson-accent focus:bg-white rounded-xl px-4 py-3 text-sm outline-none transition-all duration-200;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Typing animation */
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
+.typing-dot {
+  animation: typing-dot 1.2s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Fade in */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
