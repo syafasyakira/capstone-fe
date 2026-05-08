@@ -11,7 +11,7 @@ export const groq = new Groq({
 /** * KONFIGURASI MODEL
  * Pastikan menggunakan model vision yang aktif (misal: llama-3.2-11b-vision-instant)
  */
-const VISION_MODEL = "llama-3.2-11b-vision-instant"; 
+const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"; 
 const CHAT_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
 const SYSTEM_INSTRUCTION = `

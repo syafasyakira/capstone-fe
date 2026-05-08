@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Search, CheckCircle, Clock, History } from 'lucide-react';
-import { useNavigate } from 'react-router-dom'; // Logika navigasi tetap dipakai
+import { useNavigate } from 'react-router-dom';
 import { useChat } from '@/contexts/ChatContext';
 import { ChatSession } from '@/types';
 import { cn } from '@/utils/cn';
@@ -9,15 +9,23 @@ type Filter = 'all' | 'solved' | 'unsolved';
 
 const ITEMS_PER_PAGE = 5;
 
-export default function HistoryView() {
-  const { sessions, loadSession } = useChat(); // Menggunakan loadSession dari context
+/**
+ * Interface untuk Props HistoryView
+ * Menambahkan onSelectSession agar sesuai dengan pemanggilan di HistoryPage
+ */
+interface HistoryViewProps {
+  onSelectSession?: () => void | Promise<void>;
+}
+
+export default function HistoryView({ onSelectSession }: HistoryViewProps) {
+  const { sessions, loadSession } = useChat(); 
   const navigate = useNavigate();
   
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
 
-  // 1. Logika Filtering (Tetap Sama)
+  // 1. Logika Filtering
   const filtered = useMemo(() => {
     return sessions.filter((s) => {
       const matchQuery =
@@ -31,11 +39,11 @@ export default function HistoryView() {
     });
   }, [sessions, query, filter]);
 
-  // 2. Logika Pagination (Tetap Sama)
+  // 2. Logika Pagination
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paginated = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  // 3. Logika Grouping Waktu (Tetap Sama)
+  // 3. Logika Grouping Waktu
   const grouped = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -48,16 +56,22 @@ export default function HistoryView() {
     };
   }, [paginated]);
 
-  // 4. Handler Navigasi (Logika yang diperbaiki)
+  // 4. Handler Navigasi yang Diperbaiki
   const handleSelectSession = (id: string) => {
     loadSession(id); // Memastikan data dimuat ke context
+    
+    // Panggil onSelectSession jika dilewatkan sebagai props (dari HistoryPage)
+    if (onSelectSession) {
+      onSelectSession();
+    }
+    
     navigate(`/chat/${id}`); // Navigasi ke URL spesifik
   };
 
   const formatTime = (d: Date | string) =>
     new Date(d).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-  // --- SUB-COMPONENTS (Tampilan Awal) ---
+  // --- SUB-COMPONENTS ---
   const StatusBadge = ({ status }: { status: 'solved' | 'unsolved' }) =>
     status === 'solved' ? (
       <span className="flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-3 py-1 rounded-full">
@@ -77,7 +91,10 @@ export default function HistoryView() {
   );
 
   const SessionCard = ({ session }: { session: ChatSession }) => (
-    <div className="history-card" onClick={() => handleSelectSession(session.id)}>
+    <div 
+      className="history-card cursor-pointer hover:bg-gray-50 transition-colors border border-gray-100 p-4 rounded-xl mb-2" 
+      onClick={() => handleSelectSession(session.id)}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-gray-800 text-sm truncate">{session.title}</p>
@@ -169,7 +186,7 @@ export default function HistoryView() {
           </>
         )}
 
-        {/* Pagination (Tampilan Awal) */}
+        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex justify-center gap-2 mt-6">
             <button
