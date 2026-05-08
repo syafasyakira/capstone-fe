@@ -28,6 +28,6 @@
     /* Vite Types */
     "types": ["vite/client"]
   },
-  "include": ["src", "../backend/src/config/ai.ts"],
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
