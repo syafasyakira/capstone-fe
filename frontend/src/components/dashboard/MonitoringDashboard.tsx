@@ -1,12 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { 
   AlertCircle, CheckCircle2, Clock, Download, 
-  TrendingUp, TrendingDown, BarChart3, Calendar, MessageSquare 
+  TrendingUp, TrendingDown, BarChart3, Calendar 
 } from 'lucide-react';
 import { useChat } from '@/contexts/ChatContext';
 import { downloadMonthlyReportPDF } from '@/utils/pdf';
 
 // --- CONSTANTS ---
+// Catatan: Top Issues idealnya dikirim dari backend berdasarkan hasil analisa AI (NLP) 
+// terhadap keluhan terbanyak di bulan tersebut.
 const TOP_ISSUES = [
   'Tinta tidak terbaca',
   'Printer tidak jalan',
@@ -23,31 +25,53 @@ const MONTHS = [
 
 export default function MonitoringDashboard() {
   const { sessions } = useChat();
-  const [activeTab, setActiveTab] = useState<'chats' | 'stats'>('chats');
 
-  // State untuk Filter Manual (Permintaan: Bisa milih bulan dan tahun)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  // 1. Logika Hitung Berdasarkan Data Masuk (Permintaan: Hitung dari database/context)
+  // Logika Hitung Berdasarkan Data Masuk (Dinamis 100%)
   const stats = useMemo(() => {
-    const filtered = sessions.filter(s => {
+    // 1. Data Bulan Ini
+    const currentMonthSessions = sessions.filter(s => {
       const date = new Date(s.timestamp);
       return date.getMonth() === selectedMonth && date.getFullYear() === selectedYear;
     });
 
-    const total = filtered.length;
-    const solved = filtered.filter(s => s.status === 'solved').length;
+    const total = currentMonthSessions.length;
+    const solved = currentMonthSessions.filter(s => s.status === 'solved').length;
     const pending = total - solved;
+
+    // 2. Data Bulan Lalu (Untuk menghitung persentase perubahan)
+    const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
+    const prevYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
+    
+    const prevMonthSessions = sessions.filter(s => {
+      const date = new Date(s.timestamp);
+      return date.getMonth() === prevMonth && date.getFullYear() === prevYear;
+    });
+
+    const prevTotal = prevMonthSessions.length;
+    const prevSolved = prevMonthSessions.filter(s => s.status === 'solved').length;
+    const prevPending = prevTotal - prevSolved;
+
+    // 3. Fungsi pembantu untuk format persentase
+    const getChange = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? '+100%' : '0%';
+      const diff = ((current - previous) / previous) * 100;
+      return `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
+    };
 
     return {
       total,
       solved,
       pending,
-      // Simulasi change rate
-      totalChange: '+12%',
-      solvedChange: '-12%',
-      pendingChange: '+12%',
+      totalChange: getChange(total, prevTotal),
+      solvedChange: getChange(solved, prevSolved),
+      pendingChange: getChange(pending, prevPending),
+      // Cek apakah trend-nya naik atau turun
+      isTotalUp: total >= prevTotal,
+      isSolvedUp: solved >= prevSolved,
+      isPendingUp: pending >= prevPending,
     };
   }, [sessions, selectedMonth, selectedYear]);
 
@@ -65,48 +89,46 @@ export default function MonitoringDashboard() {
     <div className="flex-1 overflow-y-auto px-4 py-8 sm:px-8">
       {/* Header & Filter Area */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-8">
-        
-        {/* Diberikan pl-12 di mobile agar tidak tertumpuk tombol hamburger, lalu direset pl-0 di layar lebih besar (sm) */}
         <div className="pl-12 sm:pl-0">
-          <h1 className="text-2xl font-bold text-gray-800 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800 flex flex-col gap-2 sm:flex-row sm:items-center">
             <span className="flex items-center gap-2">
-              <BarChart3 size={26} className="text-epson-blue" />
+              <BarChart3 size={24} className="text-blue-600" />
               Dashboard Monitoring
             </span>
           </h1>
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-xs sm:text-sm text-gray-500 mt-2">
             Data real-time bulan <strong>{MONTHS[selectedMonth]} {selectedYear}</strong>
           </p>
         </div>
 
-        {/* Filter Dropdown (Permintaan: Bisa milih dari bulan & tahun berapa) */}
-        <div className="flex flex-wrap gap-2 bg-white p-3 rounded-xl border border-gray-100 shadow-sm mt-4 lg:mt-0">
+        {/* Filter Dropdown */}
+        <div className="flex flex-wrap items-center gap-2 bg-white p-2 sm:p-3 rounded-xl border border-gray-100 shadow-sm mt-2 lg:mt-0">
           <select 
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-            className="text-xs font-bold text-gray-600 outline-none bg-transparent border-r pr-2"
+            className="text-xs sm:text-sm font-bold text-gray-600 outline-none bg-transparent border-r pr-2 cursor-pointer"
           >
             {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
           </select>
           <select 
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            className="text-xs font-bold text-gray-600 outline-none bg-transparent pr-2"
+            className="text-xs sm:text-sm font-bold text-gray-600 outline-none bg-transparent pr-2 cursor-pointer"
           >
             {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <Calendar size={14} className="text-gray-400 self-center ml-1" />
+          <Calendar size={14} className="text-gray-400" />
         </div>
       </div>
 
-      {/* Stat cards (Design Awal) */}
-      <div className="grid grid-cols-1 gap-5 mb-8 md:grid-cols-3">
+      {/* Stat cards - Diubah menjadi grid-cols-3 di mobile dengan gap kecil */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-5 mb-8">
         <StatCard
-          label="Total Issues"
+          label="Total"
           value={stats.total}
           change={stats.totalChange}
-          up
-          icon={<AlertCircle size={22} className="text-epson-blue" />}
+          up={stats.isTotalUp}
+          icon={<AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />}
           bg="bg-blue-50"
           ring="ring-blue-100"
         />
@@ -114,8 +136,8 @@ export default function MonitoringDashboard() {
           label="Solved"
           value={stats.solved}
           change={stats.solvedChange}
-          up={false}
-          icon={<CheckCircle2 size={22} className="text-green-600" />}
+          up={stats.isSolvedUp}
+          icon={<CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />}
           bg="bg-green-50"
           ring="ring-green-100"
         />
@@ -123,52 +145,52 @@ export default function MonitoringDashboard() {
           label="Pending"
           value={stats.pending}
           change={stats.pendingChange}
-          up
-          icon={<Clock size={22} className="text-orange-500" />}
+          up={stats.isPendingUp}
+          icon={<Clock className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500" />}
           bg="bg-orange-50"
           ring="ring-orange-100"
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Top Issues (Design Awal) */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-          <h2 className="text-base font-bold text-gray-700 mb-5 text-center">Top masalah</h2>
+      <div className="grid grid-cols-1 gap-5 grid-cols-2">
+        {/* Top Issues */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+          <h2 className="text-sm sm:text-base font-bold text-gray-700 mb-4 sm:mb-5 text-center">Top Masalah</h2>
           <div className="flex flex-col divide-y divide-gray-50">
             {TOP_ISSUES.map((issue, i) => (
-              <div key={issue} className="flex items-center gap-4 py-3">
-                <span className="w-7 h-7 rounded-lg bg-epson-blue-card text-epson-blue font-bold text-sm flex items-center justify-center shrink-0">
+              <div key={issue} className="flex items-center gap-3 sm:gap-4 py-2.5 sm:py-3">
+                <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-blue-50 text-blue-600 font-bold text-xs sm:text-sm flex items-center justify-center shrink-0">
                   {i + 1}
                 </span>
-                <span className="text-sm text-gray-700">{issue}</span>
+                <span className="text-xs sm:text-sm text-gray-700">{issue}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Laporan Bulanan (Design Awal dengan fungsi download dinamis) */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-          <h2 className="text-base font-bold text-gray-700 mb-5 text-center">Laporan Tersedia</h2>
+        {/* Laporan Bulanan */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
+          <h2 className="text-sm sm:text-base font-bold text-gray-700 mb-4 sm:mb-5 text-center">Laporan Tersedia</h2>
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between bg-epson-blue-card hover:bg-blue-100 rounded-xl px-4 py-3 transition-colors">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-epson-blue-mid/10 flex items-center justify-center">
-                  <BarChart3 size={16} className="text-epson-blue" />
+            <div className="flex items-center justify-between bg-blue-50 hover:bg-blue-100 rounded-xl px-3 sm:px-4 py-3 transition-colors">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <BarChart3 size={14} className="text-blue-600 sm:w-4 sm:h-4" />
                 </div>
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-xs sm:text-sm font-medium text-gray-700">
                   Laporan {MONTHS[selectedMonth]} {selectedYear}
                 </span>
               </div>
               <button
                 onClick={handleDownload}
-                className="w-8 h-8 rounded-lg bg-epson-blue-mid hover:bg-epson-blue text-white flex items-center justify-center transition-colors"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0"
                 title="Download Laporan PDF"
               >
-                <Download size={15} />
+                <Download size={14} className="sm:w-4 sm:h-4" />
               </button>
             </div>
-            <p className="text-[10px] text-gray-400 mt-2 px-1 italic">
-              * Data laporan diperbarui otomatis berdasarkan filter bulan/tahun di atas.
+            <p className="text-[9px] sm:text-[10px] text-gray-400 mt-2 px-1 italic">
+              * Data laporan diperbarui otomatis berdasarkan filter di atas.
             </p>
           </div>
         </div>
@@ -177,6 +199,7 @@ export default function MonitoringDashboard() {
   );
 }
 
+// --- Komponen StatCard (Diperbarui untuk Mobile) ---
 interface StatCardProps {
   label: string;
   value: number;
@@ -189,20 +212,24 @@ interface StatCardProps {
 
 function StatCard({ label, value, change, up, icon, bg, ring }: StatCardProps) {
   return (
-    <div className={`stat-card flex flex-col gap-3 ring-1 ${ring}`}>
+    <div className={`flex flex-col gap-2 sm:gap-3 p-3 sm:p-5 rounded-2xl bg-white ring-1 ${ring} shadow-sm`}>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-gray-500 font-medium">{label}</span>
-        <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center`}>{icon}</div>
+        <span className="text-[10px] sm:text-sm text-gray-500 font-medium truncate pr-1">{label}</span>
+        <div className={`w-7 h-7 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl ${bg} flex items-center justify-center shrink-0`}>
+          {icon}
+        </div>
       </div>
-      <p className="text-4xl font-bold text-gray-800">{value}</p>
-      <div className="flex items-center gap-1 text-xs font-medium">
+      <p className="text-xl sm:text-4xl font-bold text-gray-800">{value}</p>
+      
+      {/* Indikator Persentase */}
+      <div className="flex items-center gap-1 text-[9px] sm:text-xs font-medium mt-auto">
         {up ? (
-          <TrendingUp size={14} className="text-green-500" />
+          <TrendingUp size={12} className="text-green-500 sm:w-3 sm:h-3" />
         ) : (
-          <TrendingDown size={14} className="text-red-400" />
+          <TrendingDown size={12} className="text-red-400 sm:w-3 sm:h-3" />
         )}
         <span className={up ? 'text-green-500' : 'text-red-400'}>{change}</span>
-        <span className="text-gray-400">from last month</span>
+        <span className="text-gray-400 hidden sm:inline">vs last mo</span>
       </div>
     </div>
   );
