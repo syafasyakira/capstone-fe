@@ -1,11 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { 
   AlertCircle, CheckCircle2, Clock, Download, 
-  TrendingUp, TrendingDown, BarChart3, Calendar 
+  TrendingUp, TrendingDown, BarChart3, Calendar, MessageSquare 
 } from 'lucide-react';
 import { useChat } from '@/contexts/ChatContext';
 import { downloadMonthlyReportPDF } from '@/utils/pdf';
-import { cn } from '@/utils/cn';
 
 // --- CONSTANTS ---
 const TOP_ISSUES = [
@@ -24,6 +23,7 @@ const MONTHS = [
 
 export default function MonitoringDashboard() {
   const { sessions } = useChat();
+  const [activeTab, setActiveTab] = useState<'chats' | 'stats'>('chats');
 
   // State untuk Filter Manual (Permintaan: Bisa milih bulan dan tahun)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -62,20 +62,25 @@ export default function MonitoringDashboard() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-8 py-8">
+    <div className="flex-1 overflow-y-auto px-4 py-8 sm:px-8">
       {/* Header & Filter Area */}
-      <div className="flex justify-between items-start mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <BarChart3 size={26} className="text-epson-blue" /> Dashboard Monitoring
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-8">
+        
+        {/* Diberikan pl-12 di mobile agar tidak tertumpuk tombol hamburger, lalu direset pl-0 di layar lebih besar (sm) */}
+        <div className="pl-12 sm:pl-0">
+          <h1 className="text-2xl font-bold text-gray-800 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <span className="flex items-center gap-2">
+              <BarChart3 size={26} className="text-epson-blue" />
+              Dashboard Monitoring
+            </span>
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-500 mt-2">
             Data real-time bulan <strong>{MONTHS[selectedMonth]} {selectedYear}</strong>
           </p>
         </div>
 
         {/* Filter Dropdown (Permintaan: Bisa milih dari bulan & tahun berapa) */}
-        <div className="flex gap-2 bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
+        <div className="flex flex-wrap gap-2 bg-white p-3 rounded-xl border border-gray-100 shadow-sm mt-4 lg:mt-0">
           <select 
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
@@ -95,7 +100,7 @@ export default function MonitoringDashboard() {
       </div>
 
       {/* Stat cards (Design Awal) */}
-      <div className="grid grid-cols-3 gap-5 mb-8">
+      <div className="grid grid-cols-1 gap-5 mb-8 md:grid-cols-3">
         <StatCard
           label="Total Issues"
           value={stats.total}
@@ -125,7 +130,7 @@ export default function MonitoringDashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Top Issues (Design Awal) */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
           <h2 className="text-base font-bold text-gray-700 mb-5 text-center">Top masalah</h2>

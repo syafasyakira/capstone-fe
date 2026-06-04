@@ -1,114 +1,73 @@
-// frontend/src/services/api.ts
-
-/**
- * URL Backend diambil dari .env (VITE_API_URL=http://localhost:3001)
- */
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-/**
- * Interface untuk struktur response dari API Backend
- */
 interface ChatResponse {
   message: string;
   role: 'assistant';
   status: 'success' | 'warning' | 'error';
 }
 
-/**
- * 1. Fungsi Utama: Mengirim Chat, Gambar, dan Riwayat ke AI
- * @param message - Teks pertanyaan user saat ini
- * @param imageUrl - Data gambar (Base64 string) jika ada
- * @param history - Array riwayat percakapan sebelumnya agar AI punya konteks
- */
 export const sendMessageToAI = async (
-  message: string, 
-  imageUrl?: string, 
+  message: string,
+  imageUrl?: string,
   history: any[] = []
 ): Promise<ChatResponse> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      // Mengirimkan semua data yang dibutuhkan backend untuk pengenalan gambar & history
-      body: JSON.stringify({ 
-        message, 
-        imageUrl,
-        history 
-      }),
-    });
-
-    if (!response.ok) {
-      // Menangani error spesifik (seperti Payload Too Large 413)
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Koneksi bermasalah (${response.status})`);
-    }
-
-    return await response.json();
-  } catch (error: any) {
-    console.error('API Service Error (Chat):', error);
-    throw error;
+  const response = await fetch(`${API_BASE_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, imageUrl, history }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Koneksi bermasalah (${response.status})`);
   }
+  return response.json();
 };
 
-/**
- * 2. Fungsi Summary: Meminta ringkasan dari riwayat percakapan
- * @param history - Riwayat percakapan lengkap yang akan diringkas
- */
 export const getAISummary = async (history: any[]): Promise<ChatResponse> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/summary`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ history }),
-    });
-
-    if (!response.ok) throw new Error('Gagal mendapatkan ringkasan.');
-    return await response.json();
-  } catch (error: any) {
-    console.error('API Service Error (Summary):', error);
-    throw error;
-  }
+  const response = await fetch(`${API_BASE_URL}/api/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ history }),
+  });
+  if (!response.ok) throw new Error('Gagal mendapatkan ringkasan.');
+  return response.json();
 };
 
-/**
- * 3. Fungsi Login (Opsional - Untuk Auth masa depan)
- */
-export const loginUser = async (credentials: { email: string; password: string }) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(credentials),
-    });
+// ── Knowledge Base (RAG) ──────────────────────────────────────
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Login gagal.');
-    }
+export interface KnowledgeItem {
+  id: string;
+  question: string;
+  answer: string;
+}
 
-    return await response.json();
-  } catch (error) {
-    console.error('API Error (Login):', error);
-    throw error;
-  }
+export const getKnowledge = async (): Promise<KnowledgeItem[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge`);
+  if (!response.ok) throw new Error('Gagal mengambil knowledge base.');
+  return response.json();
 };
 
-/**
- * 4. Fungsi Ambil History (Jika sudah integrasi database)
- */
-export const getChatHistory = async () => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/history`);
-    if (!response.ok) throw new Error('Gagal mengambil riwayat.');
-    return await response.json();
-  } catch (error) {
-    console.error('API Error (History):', error);
-    throw error;
-  }
+export const addKnowledge = async (item: Omit<KnowledgeItem, 'id'>): Promise<KnowledgeItem> => {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(item),
+  });
+  if (!response.ok) throw new Error('Gagal menambah data.');
+  return response.json();
+};
+
+export const updateKnowledge = async (id: string, item: Omit<KnowledgeItem, 'id'>): Promise<KnowledgeItem> => {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(item),
+  });
+  if (!response.ok) throw new Error('Gagal mengupdate data.');
+  return response.json();
+};
+
+export const deleteKnowledge = async (id: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge/${id}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Gagal menghapus data.');
 };

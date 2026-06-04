@@ -1,5 +1,5 @@
 // types/index.ts
-export type UserRole = 'user' | 'admin';
+export type UserRole = 'user' | 'admin' | 'cs';
 
 export interface User {
   id: string;
@@ -10,10 +10,12 @@ export interface User {
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'bot';
+  role: 'user' | 'bot' | 'cs';
   content: string;
   timestamp: Date;
   imageUrl?: string;
+  isSummary?: boolean;
+  summaryContent?: string;
 }
 
 export interface ChatSession {
@@ -21,8 +23,21 @@ export interface ChatSession {
   title: string;
   preview: string;
   timestamp: Date;
-  status: 'solved' | 'unsolved';
+  status: 'solved' | 'unsolved' | 'pending';
   messages: ChatMessage[];
+  escalatedToCS?: boolean;
+  csActive?: boolean;
+  csSolvedBy?: 'user' | 'cs' | null;
+  csHandlerName?: string | null;
+  assignedToCSId?: string | null; // ID CS yang claim sesi ini
+  userId?: string;
+  userName?: string;
+}
+
+export interface KnowledgeItem {
+  id: string;
+  question: string;
+  answer: string;
 }
 
 export interface MonthlyReport {

@@ -22,13 +22,16 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex">
-      <div className="flex-1 flex flex-col justify-center px-16 bg-white">
-        <div className="max-w-md">
-          <div className="flex items-baseline gap-1 mb-6">
-            <span className="font-black text-5xl text-epson-blue tracking-tight">EPSON</span>
-            <span className="text-epson-blue/50 text-sm align-top mt-2">®</span>
-            <span className="font-light text-5xl text-epson-blue ml-2">Support</span>
+    <div className="min-h-screen flex flex-col lg:flex-row">
+      {/* Left brand panel (Disembunyikan di mobile) */}
+      <div className="hidden lg:flex flex-1 flex-col justify-center px-8 py-10 lg:px-16 lg:py-0 bg-white">
+        <div className="max-w-xl mx-auto">
+          <div className="flex flex-col gap-2 mb-6 lg:flex-row lg:items-end lg:gap-4">
+            <div className="flex items-baseline gap-1">
+              <span className="font-black text-5xl text-epson-blue tracking-tight">EPSON</span>
+              <span className="text-epson-blue/50 text-sm align-top mt-2">®</span>
+            </div>
+            <span className="font-light text-5xl text-epson-blue">Support</span>
           </div>
           <p className="text-epson-blue font-semibold text-sm mb-2">AI Helpdesk Assistant</p>
           <p className="text-gray-600 text-sm leading-relaxed">
@@ -37,10 +40,13 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
         </div>
       </div>
 
-      <div className="w-[480px] bg-epson-blue flex items-center justify-center px-12">
-        <div className="w-full">
-          <div className="mb-10">
-            <div className="flex items-baseline gap-1">
+      {/* Right form panel (Ditambahkan class "relative") */}
+      <div className="flex-1 lg:flex-none w-full lg:w-[480px] bg-epson-blue flex items-center justify-center px-6 py-10 lg:px-12 lg:py-0 relative">
+        <div className="w-full max-w-md">
+          
+          {/* Logo ditarik ke atas-kiri saat di mobile dengan "absolute top-8 left-6", desktop kembali normal */}
+          <div className="absolute top-8 left-6 lg:static lg:mb-10 text-left">
+            <div className="flex items-baseline justify-start gap-1">
               <span className="font-black text-xl text-white tracking-tight">EPSON</span>
               <span className="text-white/50 text-xs align-top mt-1">®</span>
               <span className="font-light text-xl text-white ml-1">Support</span>
@@ -48,7 +54,7 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
             <p className="text-white/60 text-xs mt-0.5">AI Helpdesk Assistant</p>
           </div>
 
-          <div className="bg-epson-blue-light/40 backdrop-blur rounded-2xl p-8">
+          <div className="bg-epson-blue-light/40 backdrop-blur rounded-2xl p-8 mt-10 lg:mt-0">
             <h2 className="text-white text-xl font-bold text-center mb-6">Buat Akun</h2>
 
             {error && (

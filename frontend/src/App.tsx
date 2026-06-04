@@ -7,14 +7,15 @@ import RegisterPage from '@/components/auth/RegisterPage';
 import ChatPage from '@/components/chat/ChatPage';
 import HistoryPage from '@/components/history/HistoryPage';
 import MonitoringPage from '@/components/dashboard/MonitoringPage';
+import CSPage from '@/components/cs/CSPage';
+import ManageUsersPage from '@/components/admin/ManageUsersPage';
+import KnowledgeBasePage from '@/components/admin/KnowledgeBasePage';
 
-// Wrapper agar bisa pakai useNavigate di dalam provider
 function AppRoutes() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
 
-  // Belum login → tampilkan auth
   if (!user) {
     return authView === 'login' ? (
       <LoginPage onSwitchToRegister={() => setAuthView('register')} />
@@ -23,23 +24,41 @@ function AppRoutes() {
     );
   }
 
-  // Sudah login → routing halaman utama
+  const isAdmin = user.role === 'admin';
+  const isCS = user.role === 'cs';
+  const isUser = user.role === 'user';
+
   return (
     <Routes>
-      <Route path="/" element={<ChatPage onNavigate={(p) => navigate(`/${p}`)} />} />
-      <Route path="/chat" element={<ChatPage onNavigate={(p) => navigate(`/${p}`)} />} />
-      <Route path="/history" element={<HistoryPage onNavigate={(p) => navigate(`/${p}`)} />} />
-      <Route
-        path="/monitoring"
-        element={
-          user.role === 'admin' ? (
-            <MonitoringPage onNavigate={(p) => navigate(`/${p}`)} />
-          ) : (
-            <Navigate to="/chat" replace />
-          )
-        }
-      />
-      <Route path="*" element={<Navigate to="/chat" replace />} />
+      {/* User routes */}
+      {isUser && (
+        <>
+          <Route path="/" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="/chat" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="/history" element={<HistoryPage onNavigate={p => navigate(`/${p}`)} />} />
+        </>
+      )}
+
+      {/* Admin routes */}
+      {isAdmin && (
+        <>
+          <Route path="/" element={<Navigate to="/monitoring" replace />} />
+          <Route path="/monitoring" element={<MonitoringPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+          <Route path="/manage-users" element={<ManageUsersPage />} />
+        </>
+      )}
+
+      {/* CS routes */}
+      {isCS && (
+        <>
+          <Route path="/" element={<Navigate to="/cs-dashboard" replace />} />
+          <Route path="/cs-dashboard" element={<CSPage />} />
+        </>
+      )}
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

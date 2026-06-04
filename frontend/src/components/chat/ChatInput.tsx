@@ -70,15 +70,17 @@ export default function ChatInput({ onSend, disabled, quickReplies = [] }: ChatI
       )}
 
       {/* Input row */}
-      <div className="flex items-end gap-3">
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-epson-blue transition-colors"
-          title="Kirim gambar"
-        >
-          <Image size={20} />
-        </button>
-        <input type="file" ref={fileRef} accept="image/*" className="hidden" onChange={handleFile} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="p-2.5 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-epson-blue transition-colors"
+            title="Kirim gambar"
+          >
+            <Image size={20} />
+          </button>
+          <input type="file" ref={fileRef} accept="image/*" className="hidden" onChange={handleFile} />
+        </div>
 
         <textarea
           value={text}
@@ -87,7 +89,7 @@ export default function ChatInput({ onSend, disabled, quickReplies = [] }: ChatI
           placeholder="Ketik pertanyaan anda di sini..."
           disabled={disabled}
           rows={1}
-          className="flex-1 bg-gray-100 rounded-2xl px-5 py-3 text-sm outline-none resize-none focus:bg-white focus:ring-2 focus:ring-epson-accent/30 transition-all max-h-32 disabled:opacity-50"
+          className="flex-1 min-w-0 bg-gray-100 rounded-2xl px-5 py-3 text-sm outline-none resize-none focus:bg-white focus:ring-2 focus:ring-epson-accent/30 transition-all max-h-32 disabled:opacity-50"
           style={{ lineHeight: '1.5' }}
         />
 
