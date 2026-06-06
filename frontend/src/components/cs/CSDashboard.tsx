@@ -166,11 +166,16 @@ export default function CSDashboard() {
     } catch (err) { console.error('Reply error:', err); }
   };
 
+  // ✅ SESUDAH — unsolved tetap tampil di detail view dengan status updated
   const handleMark = async (solved: boolean) => {
     if (!liveSelected) return;
     try {
       await csMarkSession(liveSelected.id, solved ? 'solved' : 'unsolved');
+      // Refresh list di background agar badge count terupdate
+      loadCSEscalatedSessions();
+
       if (solved) {
+        // Solved: tampilkan ringkasan AI lalu CS bisa kembali
         setLoadingSummary(true);
         setSummary(null);
         try {
@@ -178,10 +183,6 @@ export default function CSDashboard() {
           setSummary(result.summary || null);
         } catch { setSummary(null); }
         finally { setLoadingSummary(false); }
-      } else {
-        setSelectedSession(null);
-        setLiveMessages([]);
-        setSummary(null);
       }
     } catch (err) { console.error('Mark error:', err); }
   };

@@ -11,7 +11,7 @@ router.use(authenticateToken);
 router.use(requireRole('customer_service', 'admin'));
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || 'gemini-3-flash-preview';
+const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || 'gemini-2.0-flash';
 
 // ── GET /cs/chats ─────────────────────────────────────────────
 router.get('/chats', async (req: Request, res: Response): Promise<void> => {
@@ -19,22 +19,59 @@ router.get('/chats', async (req: Request, res: Response): Promise<void> => {
     const userId = req.user!.sub;
     const userRole = req.user!.role;
 
-    let query = supabaseAdmin
-      .from('chats')
-      .select('id, customer_id, cs_id, title, preview, status, created_at, updated_at, profiles:customer_id(id, full_name, email)')
-      .in('status', ['waiting_cs', 'with_cs', 'solved', 'unsolved']);
+    console.log(`🔍 GET /cs/chats — userId: ${userId}, role: ${userRole}`);
+
+    let chats: any[] = [];
 
     if (userRole === 'customer_service') {
-      // Chat aktif: tampilkan yg belum ada CS atau milik CS ini
-      // Chat history (solved/unsolved): HANYA milik CS ini sendiri
-      query = query.or(
-        `and(status.in.(waiting_cs,with_cs),or(cs_id.eq.${userId},cs_id.is.null)),` +
-        `and(status.in.(solved,unsolved),cs_id.eq.${userId})`
-      );
-    }
+      // Query 1: aktif (waiting_cs/with_cs) — belum ada CS atau milik CS ini
+      const { data: activeChats, error: e1 } = await supabaseAdmin
+        .from('chats')
+        .select('id, customer_id, cs_id, title, preview, status, created_at, profiles:customer_id(id, full_name, email)')
+        .in('status', ['waiting_cs', 'with_cs'])
+        .or(`cs_id.eq.${userId},cs_id.is.null`)
+        .order('created_at', { ascending: false });
+      console.log(`  Q1 activeChats: ${activeChats?.length ?? 0}, error: ${e1?.message ?? 'none'}`);
+      if (e1) { res.status(500).json({ error: 'Gagal mengambil daftar chat.' }); return; }
 
-    const { data: chats, error } = await query.order('created_at', { ascending: false });
-    if (error) { res.status(500).json({ error: 'Gagal mengambil daftar chat.' }); return; }
+      // Query 2: history milik CS ini (cs_id = userId)
+      const { data: myHistory, error: e2 } = await supabaseAdmin
+        .from('chats')
+        .select('id, customer_id, cs_id, title, preview, status, created_at, profiles:customer_id(id, full_name, email)')
+        .in('status', ['solved', 'unsolved'])
+        .eq('cs_id', userId)
+        .order('created_at', { ascending: false });
+      console.log(`  Q2 myHistory: ${myHistory?.length ?? 0}, error: ${e2?.message ?? 'none'}`);
+      if (e2) { res.status(500).json({ error: 'Gagal mengambil daftar chat.' }); return; }
+
+      // Query 3: unsolved yang cs_id MASIH NULL (eskalasi customer, belum sempat di-claim)
+      const { data: unclaimedUnsolved, error: e3 } = await supabaseAdmin
+        .from('chats')
+        .select('id, customer_id, cs_id, title, preview, status, created_at, profiles:customer_id(id, full_name, email)')
+        .eq('status', 'unsolved')
+        .is('cs_id', null)
+        .order('created_at', { ascending: false });
+      console.log(`  Q3 unclaimedUnsolved: ${unclaimedUnsolved?.length ?? 0}, error: ${e3?.message ?? 'none'}`);
+      if (e3) { res.status(500).json({ error: 'Gagal mengambil daftar chat.' }); return; }
+
+      // Gabungkan, dedupe by id, sort
+      const merged = [...(activeChats || []), ...(myHistory || []), ...(unclaimedUnsolved || [])];
+      const seen = new Set<string>();
+      chats = merged
+        .filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; })
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      console.log(`  total merged: ${chats.length}`);
+    } else {
+      // Admin: ambil semua
+      const { data: allChats, error } = await supabaseAdmin
+        .from('chats')
+        .select('id, customer_id, cs_id, title, preview, status, created_at, profiles:customer_id(id, full_name, email)')
+        .in('status', ['waiting_cs', 'with_cs', 'solved', 'unsolved'])
+        .order('created_at', { ascending: false });
+      if (error) { res.status(500).json({ error: 'Gagal mengambil daftar chat.' }); return; }
+      chats = allChats || [];
+    }
 
     // Enrich dengan cs handler name
     const enriched = await Promise.all((chats || []).map(async (chat: any) => {
@@ -153,7 +190,7 @@ router.patch('/chats/:chatId/status', async (req: Request<{ chatId: string }>, r
       res.status(400).json({ error: 'Status tidak valid.' }); return;
     }
 
-    const updateData: any = { status, updated_at: new Date().toISOString() };
+    const updateData: any = { status };
     // Jangan null-kan cs_id saat solved — simpan siapa yang menangani untuk history
 
     const { error } = await supabaseAdmin.from('chats').update(updateData).eq('id', chatId);
@@ -187,7 +224,7 @@ router.post('/chats/:chatId/summary', async (req: Request<{ chatId: string }>, r
     const csName = (chat?.cs as any)?.full_name || 'CS';
     const customerName = (chat?.customer as any)?.full_name || 'Customer';
     const startTime = new Date(chat?.created_at || '').toLocaleString('id-ID');
-    const endTime = new Date(chat?.updated_at || new Date()).toLocaleString('id-ID');
+    const endTime = new Date().toLocaleString('id-ID');
 
     const historyText = messages.map((m: any) => {
       const roleName = m.role === 'user' ? customerName : m.role === 'cs' ? csName : 'Bot AI';
@@ -202,28 +239,43 @@ router.post('/chats/:chatId/summary', async (req: Request<{ chatId: string }>, r
       return;
     }
 
-    const prompt = `Kamu adalah asisten yang membuat ringkasan penanganan customer service.
+    const prompt = `Kamu adalah asisten yang membuat ringkasan lengkap dan detail penanganan customer service.
 
 Data penanganan:
 - CS: ${csName}
-- Customer: ${customerName}  
+- Customer: ${customerName}
 - Waktu mulai: ${startTime}
 - Waktu selesai: ${endTime}
 
-Percakapan:
+Percakapan lengkap:
 ${historyText}
 
-Buat ringkasan singkat dan terstruktur dalam Bahasa Indonesia yang mencakup:
-1. Masalah utama yang dilaporkan customer
-2. Solusi yang diberikan oleh CS/Bot
-3. Status penyelesaian
+Buat ringkasan LENGKAP dan DETAIL dalam Bahasa Indonesia dengan format markdown berikut:
 
-Maksimal 200 kata, format ringkasan yang mudah dibaca.`;
+## Informasi Sesi
+Tulis info CS, customer, dan waktu penanganan.
+
+## Masalah yang Dilaporkan
+Jelaskan secara detail masalah yang disampaikan customer, termasuk gejala, konteks, dan informasi produk yang relevan.
+
+## Kronologi Penanganan
+Uraikan langkah-langkah penanganan secara berurutan — apa yang ditanyakan CS, apa yang dijawab customer, solusi apa yang dicoba.
+
+## Solusi yang Diberikan
+Jelaskan secara lengkap solusi atau rekomendasi yang diberikan oleh Bot AI maupun CS. Sertakan langkah teknis jika ada.
+
+## Hasil & Status
+Apakah masalah terselesaikan? Apa tindak lanjut yang diperlukan jika ada?
+
+## Catatan Tambahan
+Hal-hal penting lain yang perlu dicatat untuk referensi ke depan.
+
+Tulis dengan bahasa yang jelas, profesional, dan informatif. Tidak ada batasan panjang — prioritaskan kelengkapan informasi.`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     const geminiRes = await axios.post(geminiUrl, {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
+      generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
     }, { timeout: 30000 });
 
     const summaryText = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';

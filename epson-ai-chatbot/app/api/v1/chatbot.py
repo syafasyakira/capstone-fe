@@ -17,4 +17,9 @@ async def chat_with_epson_ai(request: ChatRequest):
             requires_support_ticket=needs_ticket
         )
     except Exception as e:
+        import traceback
+        print("\n" + "="*60)
+        print("RAG ENDPOINT ERROR:")
+        traceback.print_exc()
+        print("="*60 + "\n")
         raise HTTPException(status_code=500, detail=str(e))

@@ -10,6 +10,113 @@ interface MessageBubbleProps {
   csHandlerName?: string | null;
 }
 
+// Render markdown sederhana: **bold**, *italic*, `code`, ### heading, - list
+function renderMarkdown(text: string): React.ReactNode[] {
+  const lines = text.split('\n');
+  const result: React.ReactNode[] = [];
+
+  lines.forEach((line, i) => {
+    const key = `line-${i}`;
+
+    // Heading ## atau ###
+    if (/^###\s/.test(line)) {
+      result.push(
+        <p key={key} className="font-bold text-[13px] text-gray-900 mt-3 mb-0.5">
+          {inlineMarkdown(line.replace(/^###\s/, ''))}
+        </p>
+      );
+      return;
+    }
+    if (/^##\s/.test(line)) {
+      result.push(
+        <p key={key} className="font-bold text-[13.5px] text-gray-900 mt-3 mb-0.5">
+          {inlineMarkdown(line.replace(/^##\s/, ''))}
+        </p>
+      );
+      return;
+    }
+    if (/^#\s/.test(line)) {
+      result.push(
+        <p key={key} className="font-bold text-[14px] text-gray-900 mt-3 mb-1">
+          {inlineMarkdown(line.replace(/^#\s/, ''))}
+        </p>
+      );
+      return;
+    }
+
+    // List item - atau *
+    if (/^[-*]\s/.test(line)) {
+      result.push(
+        <div key={key} className="flex gap-2 items-start my-0.5">
+          <span className="mt-[6px] w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+          <span className="text-[14px] leading-[1.6] text-gray-800">{inlineMarkdown(line.replace(/^[-*]\s/, ''))}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s/.test(line)) {
+      const num = line.match(/^(\d+)\./)?.[1];
+      result.push(
+        <div key={key} className="flex gap-2 items-start my-0.5">
+          <span className="text-[13px] font-semibold text-gray-500 shrink-0 min-w-[16px]">{num}.</span>
+          <span className="text-[14px] leading-[1.6] text-gray-800">{inlineMarkdown(line.replace(/^\d+\.\s/, ''))}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Baris kosong → spasi
+    if (line.trim() === '') {
+      result.push(<div key={key} className="h-1.5" />);
+      return;
+    }
+
+    // Baris biasa
+    result.push(
+      <p key={key} className="text-[14px] leading-[1.6] text-gray-800">
+        {inlineMarkdown(line)}
+      </p>
+    );
+  });
+
+  return result;
+}
+
+// Inline markdown: **bold**, *italic*, `code`
+function inlineMarkdown(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  // Regex: **bold**, *italic*, `code`
+  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  let last = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index));
+    }
+    if (match[2] !== undefined) {
+      parts.push(<strong key={match.index} className="font-semibold text-gray-900">{match[2]}</strong>);
+    } else if (match[3] !== undefined) {
+      parts.push(<em key={match.index} className="italic">{match[3]}</em>);
+    } else if (match[4] !== undefined) {
+      parts.push(
+        <code key={match.index} className="bg-gray-100 text-gray-800 px-1 py-0.5 rounded text-[12.5px] font-mono">
+          {match[4]}
+        </code>
+      );
+    }
+    last = match.index + match[0].length;
+  }
+
+  if (last < text.length) {
+    parts.push(text.slice(last));
+  }
+
+  return parts.length === 1 ? parts[0] : <>{parts}</>;
+}
+
 export default function MessageBubble({
   message,
   showResolvedActions = false,
@@ -28,7 +135,7 @@ export default function MessageBubble({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const time = new Date(message.timestamp).toLocaleTimeString('id-ID', {
+  const time = new Date(message.timestamp ?? message.createdAt ?? Date.now()).toLocaleTimeString('id-ID', {
     hour: '2-digit', minute: '2-digit',
   });
 
@@ -50,7 +157,6 @@ export default function MessageBubble({
           </div>
           <span className="text-[10.5px] text-gray-400 px-1 font-normal">{time}</span>
         </div>
-        {/* Avatar */}
         <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center shrink-0 mb-6">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
             <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
@@ -68,7 +174,6 @@ export default function MessageBubble({
   return (
     <div className="flex flex-col mb-1 animate-in fade-in slide-in-from-bottom-2 max-w-full sm:max-w-[80%]">
       <div className="flex gap-[10px] items-end group">
-        {/* Avatar */}
         <div
           className={`w-[34px] h-[34px] rounded-[10px] flex items-center justify-center shrink-0 mb-6 ${isBot ? 'border' : ''}`}
           style={avatarStyle}
@@ -80,15 +185,15 @@ export default function MessageBubble({
         </div>
 
         <div className="flex flex-col items-start gap-1 w-full">
-          {/* Nama CS handler */}
           {isCS && csHandlerName && (
             <span className="text-[11px] font-semibold px-1" style={{ color: 'var(--epson-blue-mid)' }}>
               {csHandlerName}
             </span>
           )}
           <div className="relative bg-white border border-gray-200 px-[18px] py-[14px] rounded-[18px] rounded-tl-[4px] w-full">
-            <div className="whitespace-pre-line text-[14px] leading-[1.6] text-gray-800 break-words">
-              {message.content}
+            {/* Render markdown untuk bot/CS, plain text untuk user */}
+            <div className="text-[14px] leading-[1.6] text-gray-800 break-words">
+              {renderMarkdown(message.content)}
             </div>
             <button
               onClick={handleCopy}
@@ -105,7 +210,6 @@ export default function MessageBubble({
         </div>
       </div>
 
-      {/* Card tombol Terselesaikan / Tidak terselesaikan */}
       {showResolvedActions && isBot && (
         <div className="ml-[44px] mt-1">
           <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 inline-flex gap-3 animate-in fade-in slide-in-from-bottom-2">

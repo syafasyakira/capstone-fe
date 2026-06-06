@@ -19,15 +19,30 @@ async function generateAIChatTitle(firstMessage: string): Promise<string> {
   if (!GEMINI_API_KEY) return firstMessage.substring(0, 50) + (firstMessage.length > 50 ? '...' : '');
 
   try {
-    const prompt = `Buat judul singkat (maks 8 kata, tanpa tanda kutip, tanpa titik di akhir) yang menggambarkan topik dari pesan berikut: "${firstMessage.substring(0, 200)}"`;
+    const prompt = `Kamu bertugas memberi judul pada sebuah percakapan customer service berdasarkan pesan pertama user.
+
+Pesan pertama user:
+"${firstMessage.substring(0, 300)}"
+
+Aturan judul:
+- Maksimal 6 kata
+- Bahasa yang sama dengan pesan user (Indonesia atau Inggris)
+- Langsung ke inti masalah/topik, jangan generik
+- Tanpa tanda kutip, tanpa titik di akhir
+- Gaya natural seperti judul chat — contoh: "Printer L3150 Tidak Bisa Print", "Error Saat Install Driver", "Tinta Habis Tapi Tidak Keluar", "Cara Reset Waste Ink Epson"
+- HANYA tulis judulnya saja, tidak ada kalimat lain
+
+Judul:`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     const res = await axios.post(geminiUrl, {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 30 },
+      generationConfig: { temperature: 0.7, maxOutputTokens: 25 },
     }, { timeout: 10000 });
 
-    const title = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const raw = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    // Bersihkan: hapus tanda kutip, titik di akhir, newline
+    const title = raw.replace(/^["']|["']$/g, '').replace(/\.$/, '').split('')[0].trim();
     return title || firstMessage.substring(0, 50);
   } catch {
     return firstMessage.substring(0, 50) + (firstMessage.length > 50 ? '...' : '');

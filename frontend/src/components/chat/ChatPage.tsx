@@ -10,7 +10,7 @@ import ChatInput from '@/components/chat/ChatInput';
 import SummaryBubble from '@/components/chat/SummaryBubble';
 import FAQPanel from '@/components/chat/FAQPanel';
 import { ChatMessage } from '@/types';
-import { getAISummary, getChatHistory } from '@/services/api';
+import { getAISummary, getChatHistory, generateCSSummary } from '@/services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 
 const QUICK_REPLIES = ['Printer tidak dapat mencetak', 'Cara install driver', 'Cara mengisi tinta'];
@@ -18,6 +18,7 @@ const QUICK_REPLIES = ['Printer tidak dapat mencetak', 'Cara install driver', 'C
 interface ExtendedMessage extends ChatMessage {
   isSummary?: boolean;
   summaryContent?: string;
+  isCSHandover?: boolean;
 }
 
 type ResolvedState = 'none' | 'solved' | 'unsolved';
@@ -58,6 +59,8 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
 
   // Ref untuk melacak apakah sudah ada summary di sesi ini
   const summaryShownRef = useRef(false);
+  // Ref untuk track apakah summary CS sudah ditampilkan ke customer
+  const csSummaryShownRef = useRef(false);
 
   const today = new Date().toLocaleDateString('id-ID', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
@@ -170,16 +173,34 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
         });
 
         if (data.chat) {
-          setCurrentSession((prev: any) => {
-            const csNameFromBackend = data.chat.cs?.full_name || data.chat.cs_name || null;
-            return prev 
-              ? { 
-                  ...prev, 
-                  status: data.chat.status,
-                  csHandlerName: csNameFromBackend || prev.csHandlerName 
-                } 
-              : prev;
-          });
+          const newStatus = data.chat.status;
+          const csNameFromBackend = data.chat.cs?.full_name || data.chat.cs_name || null;
+
+          setCurrentSession((prev: any) =>
+            prev ? { ...prev, status: newStatus, csHandlerName: csNameFromBackend || prev.csHandlerName } : prev
+          );
+
+          // Saat CS tandai solved -> fetch summary CS dan tampilkan ke customer
+          if (newStatus === 'solved' && !csSummaryShownRef.current) {
+            csSummaryShownRef.current = true;
+            try {
+              const result = await generateCSSummary(chatId);
+              if (result.summary) {
+                const summaryMsg = {
+                  id: `cs-summary-${Date.now()}`,
+                  role: 'bot' as const,
+                  content: result.summary,
+                  timestamp: new Date(),
+                  isSummary: true,
+                  summaryContent: result.summary,
+                  isCSHandover: true,
+                };
+                setMessages(prev => [...prev.filter(m => !m.isCSHandover), summaryMsg]);
+              }
+            } catch {
+              // silent fail
+            }
+          }
         }
       } catch {
         // silent fail
@@ -313,12 +334,20 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
   };
 
   const handleResolvedAction = async (solved: boolean) => {
-    const chatId = currentChatIdRef.current || currentSession?.id;
+    // Ambil chatId dari semua sumber yang mungkin — ref, context, session, atau URL param
+    const chatId = currentChatIdRef.current || currentChatId || currentSession?.id || urlSessionId;
     setResolvedState(solved ? 'solved' : 'unsolved');
     if (!solved) {
       setShowEscalationText(true);
       try {
-        if (chatId && chatId !== 'new') await escalateToCS(chatId);
+        if (chatId && chatId !== 'new') {
+          console.log('[Escalate] Escalating chatId:', chatId);
+          await escalateToCS(chatId);
+          // Update status lokal ke waiting_cs agar polling CS aktif & UI berubah
+          setCurrentSession((prev: any) => prev ? { ...prev, status: 'waiting_cs' } : prev);
+        } else {
+          console.warn('[Escalate] Tidak ada chatId valid, escalation dibatalkan');
+        }
       } catch (err) {
         console.error('Escalate error:', err);
       }
@@ -331,6 +360,7 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     setSummaryAccepted(false);
     setShowSummaryPrompt(false);
     summaryShownRef.current = false;
+    csSummaryShownRef.current = false;
     setResolvedActionMsgId(null);
     setResolvedState('none');
     setShowEscalationText(false);
@@ -418,6 +448,7 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
                 content={msg.summaryContent!}
                 messages={currentSession?.messages ?? []}
                 sessionTitle={currentSession?.title ?? 'Percakapan'}
+                isCSHandover={msg.isCSHandover}
               />
             ) : (
               <MessageBubble
@@ -487,7 +518,7 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
 
           <ChatInput 
             onSend={handleSend} 
-            disabled={isTyping || isSolved} 
+            disabled={isTyping || isSolved || currentSession?.status === 'waiting_cs'} 
             quickReplies={isCSMode || isSolved ? [] : QUICK_REPLIES} 
           />
         </div>
