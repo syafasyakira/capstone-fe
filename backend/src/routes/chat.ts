@@ -49,6 +49,75 @@ Judul:`;
   }
 }
 
+// ── Utility: Analyze image with Gemini Vision ────────────────
+async function analyzeImageForRAG(imageUrl: string, userMessage: string): Promise<string> {
+  if (!GEMINI_API_KEY) return userMessage;
+
+  try {
+    // Support base64 data URL dan URL biasa
+    let imagePart: any;
+
+    if (imageUrl.startsWith('data:')) {
+      // Base64 data URL: "data:image/jpeg;base64,xxxx"
+      const matches = imageUrl.match(/^data:(.+?);base64,(.+)$/);
+      if (!matches) return userMessage;
+      imagePart = {
+        inline_data: {
+          mime_type: matches[1],
+          data: matches[2],
+        },
+      };
+    } else {
+      // URL biasa
+      imagePart = {
+        file_data: {
+          mime_type: 'image/jpeg',
+          file_uri: imageUrl,
+        },
+      };
+    }
+
+    const prompt = `Kamu adalah teknisi Epson yang menganalisis gambar masalah printer/produk Epson dari customer.
+
+Pesan dari customer: "${userMessage || '(tidak ada pesan, hanya gambar)'}"
+
+Analisis gambar ini dan berikan:
+1. Deskripsi detail apa yang terlihat di gambar (kondisi printer, error yang tampil, bagian yang bermasalah, dll)
+2. Identifikasi masalah spesifik berdasarkan visual
+3. Formulasikan sebagai pertanyaan teknis yang bisa dicari di knowledge base Epson
+
+Format output: Tulis dalam 1 paragraf deskriptif yang menggabungkan konteks pesan customer dan temuan visual. Langsung ke inti, jangan ada preamble.`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const res = await axios.post(geminiUrl, {
+      contents: [{
+        parts: [
+          imagePart,
+          { text: prompt },
+        ],
+      }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 300 },
+    }, { timeout: 30000 });
+
+    const description = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    if (!description) return userMessage;
+
+    console.log(`🖼️  [Vision] Image analyzed: "${description.substring(0, 80)}..."`);
+
+    // Gabungkan deskripsi gambar + pesan asli user sebagai query RAG
+    const enrichedQuery = userMessage
+      ? `${userMessage}
+
+[Konteks dari gambar yang dikirim customer: ${description}]`
+      : `[Analisis gambar dari customer: ${description}]`;
+
+    return enrichedQuery;
+  } catch (err: any) {
+    console.error('❌ [Vision] Image analysis failed:', err.message);
+    return userMessage; // Fallback ke pesan asli
+  }
+}
+
 // ── POST /chat ────────────────────────────────────────────────
 router.post('/', async (req: Request<{}, {}, ChatRequest>, res: Response): Promise<void> => {
   try {
@@ -123,9 +192,16 @@ router.post('/', async (req: Request<{}, {}, ChatRequest>, res: Response): Promi
       content: msg.content,
     }));
 
-    // Panggil RAG
+    // Jika ada image, analisis dulu dengan Gemini Vision lalu enriched query ke RAG
+    let ragQuery = message;
+    if (image_url) {
+      console.log(`🖼️  Image detected, analyzing with Gemini Vision...`);
+      ragQuery = await analyzeImageForRAG(image_url, message);
+    }
+
+    // Panggil RAG dengan query yang sudah di-enrich (atau plain message kalau tidak ada gambar)
     console.log(`📡 Calling RAG model...`);
-    const ragResponse = await callRAGModel(userId, message, formattedHistory);
+    const ragResponse = await callRAGModel(userId, ragQuery, formattedHistory);
     const processed = processRAGResponse(ragResponse);
 
     let chatStatus = 'ai';
