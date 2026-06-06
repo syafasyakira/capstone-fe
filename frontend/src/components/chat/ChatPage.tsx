@@ -8,7 +8,7 @@ import ChatInput from '@/components/chat/ChatInput';
 import SummaryBubble from '@/components/chat/SummaryBubble';
 import FAQPanel from '@/components/chat/FAQPanel';
 import { ChatMessage } from '@/types';
-import { sendMessageToAI, getAISummary } from '@/services/api';
+import { getAISummary } from '@/services/api';
 
 const QUICK_REPLIES = ['Printer tidak dapat mencetak', 'Cara install driver', 'Cara mengisi tinta'];
 
@@ -25,31 +25,48 @@ interface ChatPageProps {
 
 export default function ChatPage({ onNavigate }: ChatPageProps) {
   const {
-    currentSession, startNewSession, addMessageToSession,
-    markSessionSolved, escalateToCS,
-    isTyping, setIsTyping,
-    showSummaryPrompt, summaryAccepted, acceptSummary, resetSummaryFlow,
+    sessions, currentSessionId, currentChatId,
+    sendMessage, loadSession, loadUserSessions, escalateToCS,
+    isLoading, error,
   } = useChat();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
   const [resolvedActionMsgId, setResolvedActionMsgId] = useState<string | null>(null);
   const [resolvedState, setResolvedState] = useState<ResolvedState>('none');
   const pendingResolvedMsgId = useRef<string | null>(null);
   const [showEscalationText, setShowEscalationText] = useState(false);
+  const [summaryAccepted, setSummaryAccepted] = useState(false);
+  const [showSummaryPrompt, setShowSummaryPrompt] = useState(false);
+  const [currentSession, setCurrentSession] = useState<any>(null);
 
   const today = new Date().toLocaleDateString('id-ID', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
   useEffect(() => {
-    if (!currentSession) startNewSession();
+    loadUserSessions().then(() => {
+      if (sessions.length === 0) {
+        setCurrentSession({ id: 'new', title: 'New Chat', messages: [] });
+      } else {
+        const latest = sessions[sessions.length - 1];
+        setCurrentSession(latest);
+        loadSession(latest.id);
+      }
+    });
   }, []);
 
   useEffect(() => {
-    if (!currentSession) return;
-    setMessages(currentSession.messages.map((m: ChatMessage) => ({ ...m })));
-  }, [currentSession]);
+    const session = sessions.find(s => s.id === currentSessionId);
+    if (session) {
+      setCurrentSession(session);
+      setMessages(session.messages?.map((m: ChatMessage) => ({ ...m })) || []);
+      if (session.messages?.length >= 8) {
+        setShowSummaryPrompt(true);
+      }
+    }
+  }, [sessions, currentSessionId]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -58,7 +75,6 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     return () => clearTimeout(timeout);
   }, [messages, isTyping, showSummaryPrompt, resolvedActionMsgId, showEscalationText]);
 
-  // Saat isTyping false, tampilkan tombol resolved kalau ada pending
   useEffect(() => {
     if (!isTyping && pendingResolvedMsgId.current) {
       setResolvedActionMsgId(pendingResolvedMsgId.current);
@@ -67,39 +83,39 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     }
   }, [isTyping]);
 
-  // Generate summary
   useEffect(() => {
     const run = async () => {
       if (summaryAccepted !== true || !currentSession) return;
       setIsTyping(true);
       try {
         const chatHistory = currentSession.messages
-          .filter(m => m.id !== 'welcome' && !m.id.startsWith('err-'))
-          .map(m => ({
+          .filter((m: any) => m.id !== 'welcome' && !m.id.startsWith('err-'))
+          .map((m: any) => ({
             role: m.role === 'bot' ? 'assistant' : 'user',
             content: typeof m.content === 'string' ? m.content : 'User mengirimkan gambar',
           }));
         const response = await getAISummary(chatHistory);
-        addMessageToSession({
+        const newMsg = {
           id: `summary-${Date.now()}`,
           role: 'bot',
           content: response.message,
           timestamp: new Date(),
           isSummary: true,
           summaryContent: response.message,
-        } as ExtendedMessage);
+        };
+        setMessages(prev => [...prev, newMsg as ExtendedMessage]);
       } catch (err) {
         console.error('Gagal membuat summary:', err);
       } finally {
         setIsTyping(false);
-        acceptSummary(false);
+        setSummaryAccepted(false);
       }
     };
     run();
   }, [summaryAccepted, currentSession?.id]);
 
   const handleSend = async (content: string, imageUrl?: string) => {
-    if (showSummaryPrompt) acceptSummary(false);
+    setShowSummaryPrompt(false);
     setResolvedActionMsgId(null);
     setResolvedState('none');
     setShowEscalationText(false);
@@ -108,49 +124,61 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`, role: 'user', content, timestamp: new Date(), imageUrl,
     };
-    addMessageToSession(userMsg);
+    setMessages(prev => [...prev, userMsg]);
     setIsTyping(true);
 
     try {
       const chatHistory = (currentSession?.messages || [])
-        .filter(m => m.id !== 'welcome')
-        .map(m => ({
+        .filter((m: any) => m.id !== 'welcome')
+        .map((m: any) => ({
           role: m.role === 'bot' ? 'assistant' : 'user',
           content: typeof m.content === 'string' ? m.content : 'User mengirimkan gambar',
         }));
-      const response = await sendMessageToAI(content, imageUrl, chatHistory);
+      const response = await sendMessage(content, imageUrl);
       const botMsgId = `bot-${Date.now()}`;
-      addMessageToSession({ id: botMsgId, role: 'bot', content: response.message, timestamp: new Date() });
+      const botMsg: ChatMessage = {
+        id: botMsgId, role: 'bot', content: response.message, timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, botMsg]);
       pendingResolvedMsgId.current = botMsgId;
+      if (currentSession?.messages?.length >= 6) {
+        setShowSummaryPrompt(true);
+      }
     } catch {
-      addMessageToSession({
+      const errMsg: ChatMessage = {
         id: `err-${Date.now()}`, role: 'bot',
         content: 'Maaf, sistem sedang sibuk. Pastikan koneksi internet Anda stabil.',
         timestamp: new Date(),
-      });
+      };
+      setMessages(prev => [...prev, errMsg]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const handleResolvedAction = (solved: boolean) => {
+  const handleResolvedAction = async (solved: boolean) => {
     if (!currentSession) return;
     setResolvedState(solved ? 'solved' : 'unsolved');
     if (solved) {
-      markSessionSolved(currentSession.id, true);
     } else {
       setShowEscalationText(true);
-      escalateToCS(currentSession.id);
+      try {
+        await escalateToCS(currentSession.id);
+      } catch (err) {
+        console.error('Escalate error:', err);
+      }
     }
   };
 
   const handleNewChat = () => {
-    resetSummaryFlow();
+    setSummaryAccepted(false);
+    setShowSummaryPrompt(false);
     setResolvedActionMsgId(null);
     setResolvedState('none');
     setShowEscalationText(false);
     pendingResolvedMsgId.current = null;
-    startNewSession();
+    setCurrentSession({ id: 'new', title: 'New Chat', messages: [] });
+    setMessages([]);
   };
 
   const isCSMode = currentSession?.csActive === true;
@@ -159,13 +187,17 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     ? `EPSON AI Assistant | ${csHandlerName}`
     : 'EPSON AI Assistant';
 
+  const acceptSummary = (accept: boolean) => {
+    setSummaryAccepted(accept);
+    if (!accept) setShowSummaryPrompt(false);
+  };
+
   return (
     <div className="flex h-[100dvh] w-full max-w-[100vw] overflow-hidden bg-gray-50">
       <SidebarNav bottomContent={<FAQPanel onSelectQuestion={handleSend} />} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 h-full bg-gray-50">
 
-        {/* Header */}
         <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between gap-3 shrink-0 min-w-0">
           <div className="flex items-center gap-3 overflow-hidden">
             <div
@@ -197,7 +229,6 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
           </div>
         </header>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 flex flex-col gap-1 custom-scrollbar min-w-0">
           {messages.map((msg) =>
             msg.isSummary ? (
@@ -221,7 +252,6 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
 
           {isTyping && <TypingIndicator />}
 
-          {/* Separator eskalasi */}
           {showEscalationText && (
             <div className="flex items-center gap-3 py-4 animate-in fade-in">
               <div className="flex-1 h-px bg-gray-300" />
@@ -232,7 +262,6 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
             </div>
           )}
 
-          {/* Summary prompt */}
           {showSummaryPrompt && !isTyping && !isCSMode && (
             <div className="flex flex-col items-center gap-3 py-6 animate-in fade-in slide-in-from-bottom-2 w-full px-2">
               <div className="h-[1px] w-full bg-gray-200" />
@@ -258,7 +287,6 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
           <div ref={bottomRef} className="h-4 shrink-0" />
         </div>
 
-        {/* Input */}
         <div className="bg-white border-t border-gray-100 shrink-0 min-w-0 w-full">
           <ChatInput onSend={handleSend} disabled={isTyping} quickReplies={QUICK_REPLIES} />
         </div>

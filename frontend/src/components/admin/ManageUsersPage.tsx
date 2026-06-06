@@ -1,20 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SidebarNav } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { Users, Plus, Trash2, X, AlertCircle, CheckCircle, Pencil } from 'lucide-react';
 
 export default function ManageUsersPage() {
-  // Tambahkan updateCSUser di Context Anda nantinya
-  const { csUsers, addCSUser, removeCSUser, updateCSUser } = useAuth() as any; 
-  
+  const { csUsers, addCSUser, removeCSUser, updateCSUser, refreshCSUsers } = useAuth() as any;
+
+  useEffect(() => {
+    refreshCSUsers();
+  }, []);
+
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [editId, setEditId] = useState('');
-  
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +34,7 @@ export default function ManageUsersPage() {
     setEditId(cs.id);
     setName(cs.name);
     setEmail(cs.email);
-    setPassword(''); // Kosongkan password saat edit
+    setPassword('');
     setError(''); setSuccess('');
     setShowModal(true);
   };
@@ -44,29 +47,27 @@ export default function ManageUsersPage() {
     setLoading(true);
 
     if (modalMode === 'add') {
-      if (!password || password.length < 6) { 
-        setError('Password minimal 6 karakter'); setLoading(false); return; 
+      if (!password || password.length < 6) {
+        setError('Password minimal 6 karakter'); setLoading(false); return;
       }
       const ok = await addCSUser(name, email, password);
       setLoading(false);
       if (!ok) { setError('Email sudah terdaftar'); return; }
       setSuccess(`Akun CS "${name}" berhasil ditambahkan`);
     } else {
-      // Edit Mode
-      if (password && password.length < 6) { 
-        setError('Password baru minimal 6 karakter'); setLoading(false); return; 
+      if (password && password.length < 6) {
+        setError('Password baru minimal 6 karakter'); setLoading(false); return;
       }
-      // Panggil fungsi update dari context
-      const ok = await updateCSUser?.(editId, name, email, password) ?? true; 
+      const ok = await updateCSUser?.(editId, name, email, password) ?? true;
       setLoading(false);
       if (!ok) { setError('Gagal memperbarui akun'); return; }
       setSuccess(`Akun CS "${name}" berhasil diperbarui`);
     }
 
-    setTimeout(() => { 
-      setShowModal(false); 
-      setSuccess(''); 
-      setName(''); setEmail(''); setPassword(''); 
+    setTimeout(() => {
+      setShowModal(false);
+      setSuccess('');
+      setName(''); setEmail(''); setPassword('');
     }, 1500);
   };
 
@@ -78,24 +79,21 @@ export default function ManageUsersPage() {
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-gray-50">
       <SidebarNav />
-      
+
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8 w-full">
-        
-        {/* Header & Action Area - Dibuat selalu sejajar (flex-row) */}
+
         <div className="flex flex-row items-center justify-between gap-3 mb-6 sm:mb-8">
-          
-          {/* Sisi Kiri: Judul dan Deskripsi */}
+
           <div className="pl-12 sm:pl-0 min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-1.5 sm:gap-2">
-              <Users size={22} className="sm:w-[26px] sm:h-[26px] shrink-0" style={{ color: 'var(--epson-blue)' }} /> 
+              <Users size={22} className="sm:w-[26px] sm:h-[26px] shrink-0" style={{ color: 'var(--epson-blue)' }} />
               <span className="truncate">Kelola Akun</span>
             </h1>
             <p className="text-[10px] sm:text-sm text-gray-500 mt-1 hidden sm:block">
               Tambah dan kelola akun Customer Service
             </p>
           </div>
-          
-          {/* Sisi Kanan: Tombol Tambah (Tetap di kanan berkat flex-row & justify-between) */}
+
           <button
             onClick={openAddModal}
             className="flex items-center justify-center gap-1.5 text-white text-[11px] sm:text-sm font-semibold px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg sm:rounded-xl transition-all shrink-0 shadow-sm"
@@ -106,7 +104,6 @@ export default function ManageUsersPage() {
 
         </div>
 
-        {/* List CS - Full Width */}
         <div className="flex flex-col gap-2.5 sm:gap-3 w-full">
           {csUsers.length === 0 ? (
             <div className="bg-white border border-gray-100 sm:border-gray-200 rounded-xl sm:rounded-2xl p-6 sm:p-10 text-center text-gray-400 shadow-sm">
@@ -116,7 +113,7 @@ export default function ManageUsersPage() {
           ) : (
             csUsers.map((cs: any) => (
               <div key={cs.id} className="bg-white border border-gray-100 sm:border-gray-200 rounded-xl sm:rounded-2xl px-4 py-3 sm:px-5 sm:py-4 shadow-sm transition-all hover:shadow-md flex flex-row items-center justify-between gap-3 sm:gap-4">
-                
+
                 <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
                   <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base shrink-0 shadow-inner"
                     style={{ backgroundColor: 'var(--epson-blue-mid)' }}>
@@ -127,8 +124,7 @@ export default function ManageUsersPage() {
                     <p className="text-[11px] sm:text-sm text-gray-500 truncate mt-0.5">{cs.email}</p>
                   </div>
                 </div>
-                
-                {/* Action Buttons */}
+
                 <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                   <button
                     onClick={() => openEditModal(cs)}
@@ -151,11 +147,10 @@ export default function ManageUsersPage() {
           )}
         </div>
 
-        {/* Modal Form */}
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 sm:p-0 backdrop-blur-sm">
             <div className="bg-white rounded-2xl p-5 sm:p-7 w-full max-w-md shadow-2xl max-h-[90dvh] flex flex-col">
-              
+
               <div className="flex items-center justify-between mb-4 sm:mb-6 shrink-0">
                 <h2 className="font-bold text-gray-800 text-base sm:text-xl">
                   {modalMode === 'add' ? 'Tambah Akun CS' : 'Edit Akun CS'}
@@ -199,8 +194,8 @@ export default function ManageUsersPage() {
                       Password {modalMode === 'edit' && '(Opsional)'}
                     </label>
                     <input
-                      type="password" 
-                      placeholder={modalMode === 'add' ? "Minimal 6 karakter" : "Kosongkan jika tidak ingin ganti"} 
+                      type="password"
+                      placeholder={modalMode === 'add' ? "Minimal 6 karakter" : "Kosongkan jika tidak ingin ganti"}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleSave()}

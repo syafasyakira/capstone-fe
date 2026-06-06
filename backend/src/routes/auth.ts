@@ -1,7 +1,7 @@
 // Authentication routes: Register, Login
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { supabaseAdmin } from '../config/supabase.js';
+import { supabaseAdmin, supabaseClient } from '../config/supabase.js';
 import { generateToken } from '../middleware/auth.js';
 import { AuthRequest } from '../models/types.js';
 
@@ -110,11 +110,14 @@ router.post('/login', async (req: Request<{}, {}, AuthRequest>, res: Response): 
 
     console.log(`🔐 Login attempt: ${email}`);
 
-    // Authenticate with Supabase
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.signInWithPassword({
+    // Authenticate with Supabase (use regular client, not admin - signInWithPassword is not available on admin)
+    const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
       email,
       password,
     });
+
+    console.log('Auth data:', JSON.stringify(authData));
+    console.log('Auth error:', JSON.stringify(authError));
 
     if (authError || !authData.user) {
       console.error('❌ Auth Error:', authError?.message || 'User not found');

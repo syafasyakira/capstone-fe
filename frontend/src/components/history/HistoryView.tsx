@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, CheckCircle, Clock, History, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useChat } from '@/contexts/ChatContext';
@@ -13,17 +13,21 @@ interface HistoryViewProps {
 }
 
 export default function HistoryView({ onSelectSession }: HistoryViewProps) {
-  const { sessions, loadSession } = useChat();
+  const { sessions, loadSession, loadUserSessions } = useChat();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [page, setPage] = useState(1);
 
+  useEffect(() => {
+    loadUserSessions();
+  }, []);
+
   const filtered = useMemo(() => {
     return sessions.filter((s) => {
       const matchQuery =
         s.title.toLowerCase().includes(query.toLowerCase()) ||
-        s.preview.toLowerCase().includes(query.toLowerCase());
+        (s.preview || '').toLowerCase().includes(query.toLowerCase());
       const matchFilter =
         filter === 'all' ||
         (filter === 'solved' && s.status === 'solved') ||
@@ -39,9 +43,9 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
     return {
-      today: paginated.filter(s => new Date(s.timestamp) >= today),
-      week: paginated.filter(s => new Date(s.timestamp) >= weekAgo && new Date(s.timestamp) < today),
-      older: paginated.filter(s => new Date(s.timestamp) < weekAgo),
+      today: paginated.filter(s => new Date(s.createdAt) >= today),
+      week: paginated.filter(s => new Date(s.createdAt) >= weekAgo && new Date(s.createdAt) < today),
+      older: paginated.filter(s => new Date(s.createdAt) < weekAgo),
     };
   }, [paginated]);
 
@@ -55,7 +59,7 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
     new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const StatusBadge = ({ session }: { session: ChatSession }) => {
-    if (session.csActive) return (
+    if (session.status === 'waiting_cs') return (
       <span className="flex items-center gap-1 text-xs font-semibold bg-orange-100 text-orange-600 px-3 py-1 rounded-full">
         <Clock size={12} /> Menunggu CS
       </span>
@@ -79,21 +83,26 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
     </div>
   );
 
-  const SessionCard = ({ session }: { session: ChatSession }) => (
-    <div
-      className="bg-white border border-gray-100 rounded-xl p-4 mb-2 cursor-pointer hover:border-blue-200 hover:shadow-sm transition-all"
-      onClick={() => handleSelect(session)}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-800 text-sm truncate">{session.title}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{formatDate(session.timestamp)}</p>
-          <p className="text-sm text-gray-500 mt-2 truncate">"{session.preview || 'Tidak ada preview'}"</p>
+  const SessionCard = ({ session }: { session: ChatSession }) => {
+    const preview = session.messages?.length > 0
+      ? (session.messages[session.messages.length - 1].content as string).substring(0, 50) + '...'
+      : 'Tidak ada preview';
+    return (
+      <div
+        className="bg-white border border-gray-100 rounded-xl p-4 mb-2 cursor-pointer hover:border-blue-200 hover:shadow-sm transition-all"
+        onClick={() => handleSelect(session)}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-800 text-sm truncate">{session.title}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatDate(session.createdAt)}</p>
+            <p className="text-sm text-gray-500 mt-2 truncate">"{preview}"</p>
+          </div>
+          <StatusBadge session={session} />
         </div>
-        <StatusBadge session={session} />
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Headphones, ArrowLeft, Send, CheckCircle, XCircle, Clock, BotMessageSquare, User, Lock } from 'lucide-react';
 import { useChat } from '@/contexts/ChatContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8,7 +8,7 @@ import { cn } from '@/utils/cn';
 type FilterStatus = 'all' | 'waiting' | 'solved' | 'unsolved';
 
 export default function CSDashboard() {
-  const { sessions, csClaimSession, csReplyToSession, csMarkSession } = useChat();
+  const { sessions, csClaimSession, csReplyToSession, csMarkSession, loadCSEscalatedSessions } = useChat();
   const { user } = useAuth();
   const [selectedSession, setSelectedSession] = useState<ChatSession | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -17,53 +17,64 @@ export default function CSDashboard() {
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState('');
 
+  useEffect(() => {
+    loadCSEscalatedSessions();
+  }, []);
+
   const escalatedSessions = useMemo(
-    () => sessions.filter(s => s.escalatedToCS),
+    () => sessions.filter(s => s.status === 'waiting_cs' || s.status === 'with_cs'),
     [sessions]
   );
 
   const filteredSessions = useMemo(() => {
     let list = [...escalatedSessions];
-    if (filterStatus === 'waiting') list = list.filter(s => s.csActive);
-    else if (filterStatus === 'solved') list = list.filter(s => !s.csActive && s.status === 'solved');
-    else if (filterStatus === 'unsolved') list = list.filter(s => !s.csActive && s.status === 'unsolved');
-    if (filterYear) list = list.filter(s => new Date(s.timestamp).getFullYear() === Number(filterYear));
-    if (filterMonth) list = list.filter(s => new Date(s.timestamp).getMonth() + 1 === Number(filterMonth));
-    if (filterDate) list = list.filter(s => new Date(s.timestamp).getDate() === Number(filterDate));
-    list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    if (filterStatus === 'waiting') list = list.filter(s => s.status === 'with_cs');
+    else if (filterStatus === 'solved') list = list.filter(s => s.status === 'solved');
+    else if (filterStatus === 'unsolved') list = list.filter(s => s.status === 'unsolved');
+    if (filterYear) list = list.filter(s => new Date(s.createdAt).getFullYear() === Number(filterYear));
+    if (filterMonth) list = list.filter(s => new Date(s.createdAt).getMonth() + 1 === Number(filterMonth));
+    if (filterDate) list = list.filter(s => new Date(s.createdAt).getDate() === Number(filterDate));
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return list;
   }, [escalatedSessions, filterStatus, filterDate, filterMonth, filterYear]);
 
   const availableYears = useMemo(() => {
-    const years = [...new Set(escalatedSessions.map(s => new Date(s.timestamp).getFullYear()))];
+    const years = [...new Set(escalatedSessions.map(s => new Date(s.createdAt).getFullYear()))];
     return years.sort((a, b) => b - a);
   }, [escalatedSessions]);
 
-  // Sinkronisasi selectedSession dengan data terbaru
   const liveSelected = selectedSession
     ? sessions.find(s => s.id === selectedSession.id) ?? selectedSession
     : null;
 
-  const handleClaim = (session: ChatSession) => {
+  const handleClaim = async (session: ChatSession) => {
     if (!user) return;
-    const ok = csClaimSession(session.id, user.id, user.name);
-    if (!ok) {
+    try {
+      await csClaimSession(session.id);
+      setSelectedSession(session);
+    } catch (err) {
       alert('Sesi ini sudah diambil oleh CS lain.');
-      return;
     }
-    setSelectedSession(session);
   };
 
-  const handleReply = () => {
+  const handleReply = async () => {
     if (!replyText.trim() || !liveSelected || !user) return;
-    csReplyToSession(liveSelected.id, replyText.trim(), user.name);
-    setReplyText('');
+    try {
+      await csReplyToSession(liveSelected.id, replyText.trim());
+      setReplyText('');
+    } catch (err) {
+      console.error('Reply error:', err);
+    }
   };
 
-  const handleMark = (solved: boolean) => {
+  const handleMark = async (solved: boolean) => {
     if (!liveSelected) return;
-    csMarkSession(liveSelected.id, solved);
-    setSelectedSession(null);
+    try {
+      await csMarkSession(liveSelected.id, solved ? 'solved' : 'unsolved');
+      setSelectedSession(null);
+    } catch (err) {
+      console.error('Mark error:', err);
+    }
   };
 
   const formatTime = (d: Date | string) =>
@@ -75,11 +86,9 @@ export default function CSDashboard() {
   const isMySession = liveSelected?.assignedToCSId === user?.id;
   const isTakenByOther = liveSelected?.assignedToCSId && liveSelected.assignedToCSId !== user?.id;
 
-  // ── Detail view ──
   if (liveSelected) {
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Header */}
         <div className="px-6 py-4 bg-white border-b border-gray-100 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
             <button
@@ -90,10 +99,10 @@ export default function CSDashboard() {
             </button>
             <div>
               <p className="font-bold text-gray-800 text-sm">{liveSelected.title}</p>
-              <p className="text-xs text-gray-400">{liveSelected.messages.length} pesan · {formatDate(liveSelected.timestamp)}</p>
+              <p className="text-xs text-gray-400">{liveSelected.messages?.length || 0} pesan · {formatDate(liveSelected.createdAt)}</p>
             </div>
           </div>
-          {liveSelected.csActive && isMySession && (
+          {liveSelected.status === 'with_cs' && isMySession && (
             <div className="flex gap-2 shrink-0">
               <button onClick={() => handleMark(true)} className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all">
                 <CheckCircle size={14} /> Tandai Selesai
@@ -105,10 +114,8 @@ export default function CSDashboard() {
           )}
         </div>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-4 custom-scrollbar">
-          {liveSelected.messages.map((msg: ChatMessage) => {
-            // Perspektif CS: CS di kanan, user & bot di kiri
+          {(liveSelected.messages || []).map((msg: ChatMessage) => {
             if (msg.role === 'cs') return (
               <div key={msg.id} className="flex justify-end">
                 <div className="flex flex-col items-end max-w-[70%] gap-1">
@@ -140,7 +147,6 @@ export default function CSDashboard() {
                 </div>
               </div>
             );
-            // Bot
             return (
               <div key={msg.id} className="flex gap-2 items-end max-w-[70%]">
                 <div className="w-8 h-8 rounded-[10px] border flex items-center justify-center shrink-0"
@@ -159,8 +165,7 @@ export default function CSDashboard() {
           })}
         </div>
 
-        {/* Input / Status */}
-        {liveSelected.csActive ? (
+        {liveSelected.status === 'with_cs' ? (
           isMySession ? (
             <div className="bg-white border-t border-gray-100 p-4 flex gap-3">
               <input
@@ -195,7 +200,6 @@ export default function CSDashboard() {
     );
   }
 
-  // ── List view ──
   const FILTERS: { key: FilterStatus; label: string }[] = [
     { key: 'all', label: 'Semua' },
     { key: 'waiting', label: 'Menunggu' },
@@ -212,7 +216,6 @@ export default function CSDashboard() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8">
-      {/* Header */}
       <div className="pl-12 sm:pl-0 mb-5">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-800 flex items-center gap-2">
           <Headphones size={22} style={{ color: 'var(--epson-blue)' }} /> CS Dashboard
@@ -220,13 +223,12 @@ export default function CSDashboard() {
         <p className="text-xs sm:text-sm text-gray-500 mt-1">Sesi pengguna yang menunggu bantuan Customer Service</p>
       </div>
 
-      {/* Status filter tabs */}
       <div className="flex gap-1.5 flex-wrap mb-3 max-w-2xl">
         {FILTERS.map(f => {
           const count = f.key === 'all' ? escalatedSessions.length
-            : f.key === 'waiting' ? escalatedSessions.filter(s => s.csActive).length
-            : f.key === 'solved' ? escalatedSessions.filter(s => !s.csActive && s.status === 'solved').length
-            : escalatedSessions.filter(s => !s.csActive && s.status === 'unsolved').length;
+            : f.key === 'waiting' ? escalatedSessions.filter(s => s.status === 'with_cs').length
+            : f.key === 'solved' ? escalatedSessions.filter(s => s.status === 'solved').length
+            : escalatedSessions.filter(s => s.status === 'unsolved').length;
           return (
             <button
               key={f.key}
@@ -248,9 +250,7 @@ export default function CSDashboard() {
         })}
       </div>
 
-      {/* Date filter row */}
       <div className="flex items-center gap-2 flex-wrap mb-5 max-w-2xl">
-        {/* Tanggal */}
         <select
           value={filterDate}
           onChange={e => setFilterDate(e.target.value)}
@@ -262,7 +262,6 @@ export default function CSDashboard() {
           ))}
         </select>
 
-        {/* Bulan */}
         <select
           value={filterMonth}
           onChange={e => setFilterMonth(e.target.value)}
@@ -274,7 +273,6 @@ export default function CSDashboard() {
           ))}
         </select>
 
-        {/* Tahun */}
         <select
           value={filterYear}
           onChange={e => setFilterYear(e.target.value)}
@@ -286,7 +284,6 @@ export default function CSDashboard() {
           ))}
         </select>
 
-        {/* Reset button */}
         {hasDateFilter && (
           <button
             onClick={() => { setFilterDate(''); setFilterMonth(''); setFilterYear(''); }}
@@ -312,28 +309,30 @@ export default function CSDashboard() {
           {filteredSessions.map(session => {
             const isMine = session.assignedToCSId === user?.id;
             const isTaken = session.assignedToCSId && session.assignedToCSId !== user?.id;
+            const preview = session.messages?.length > 0
+              ? (session.messages[session.messages.length - 1].content as string).substring(0, 50) + '...'
+              : 'Tidak ada pesan';
             return (
               <div key={session.id} className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-5">
-                {/* Top row: title + status badge */}
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <p className="font-semibold text-gray-800 text-sm leading-snug line-clamp-2 flex-1">{session.title}</p>
                   <span className={cn(
                     'flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0',
-                    session.csActive ? 'bg-orange-100 text-orange-600'
+                    session.status === 'with_cs' ? 'bg-orange-100 text-orange-600'
                     : session.status === 'solved' ? 'bg-green-100 text-green-700'
-                    : 'bg-red-100 text-red-600'
+                    : session.status === 'unsolved' ? 'bg-red-100 text-red-600'
+                    : 'bg-gray-100 text-gray-600'
                   )}>
-                    {session.csActive ? <><Clock size={10} /> Menunggu</>
+                    {session.status === 'with_cs' ? <><Clock size={10} /> Menunggu</>
                     : session.status === 'solved' ? <><CheckCircle size={10} /> Selesai</>
-                    : <><XCircle size={10} /> Tidak Selesai</>}
+                    : session.status === 'unsolved' ? <><XCircle size={10} /> Tidak Selesai</>
+                    : <><Clock size={10} /> Baru</>}
                   </span>
                 </div>
 
-                {/* Date + preview */}
-                <p className="text-[11px] text-gray-400 mb-1">{formatDate(session.timestamp)}</p>
-                <p className="text-xs text-gray-500 truncate mb-2">"{session.preview}"</p>
+                <p className="text-[11px] text-gray-400 mb-1">{formatDate(session.createdAt)}</p>
+                <p className="text-xs text-gray-500 truncate mb-2">"{preview}"</p>
 
-                {/* Handler info + action button */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] min-w-0">
                     {isTaken && (
@@ -347,9 +346,9 @@ export default function CSDashboard() {
                       </p>
                     )}
                   </div>
-                  {session.csActive ? (
+                  {session.status === 'waiting_cs' ? (
                     <button
-                      onClick={() => isMine || isTaken ? setSelectedSession(session) : handleClaim(session)}
+                      onClick={() => handleClaim(session)}
                       className={cn(
                         'text-xs font-semibold px-4 py-1.5 rounded-xl transition-all shrink-0',
                         isTaken ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' : 'text-white hover:opacity-90'
@@ -357,6 +356,13 @@ export default function CSDashboard() {
                       style={!isTaken ? { backgroundColor: 'var(--epson-blue-mid)' } : {}}
                     >
                       {isMine ? 'Lanjutkan' : isTaken ? 'Lihat' : 'Ambil'}
+                    </button>
+                  ) : session.status === 'with_cs' ? (
+                    <button
+                      onClick={() => setSelectedSession(session)}
+                      className="text-xs font-semibold px-4 py-1.5 rounded-xl bg-blue-500 text-white hover:bg-blue-600 transition-all shrink-0"
+                    >
+                      {isMine ? 'Lanjutkan' : 'Lihat'}
                     </button>
                   ) : (
                     <button onClick={() => setSelectedSession(session)} className="text-xs font-semibold px-4 py-1.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all shrink-0">

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 interface RegisterPageProps {
   onSwitchToLogin: () => void;
@@ -8,6 +9,7 @@ interface RegisterPageProps {
 
 export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
   const { register, isLoading } = useAuth();
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +20,10 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
     setError('');
     if (!name || !email || !password) { setError('Semua field harus diisi'); return; }
     if (password.length < 6) { setError('Kata sandi minimal 6 karakter'); return; }
-    await register(name, email, password);
+    const success = await register(name, email, password);
+    if (success) {
+      navigate('/');
+    }
   };
 
   return (

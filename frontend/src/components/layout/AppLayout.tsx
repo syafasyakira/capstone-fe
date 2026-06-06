@@ -4,7 +4,7 @@ import { BotMessageSquare, History, BarChart3, LogOut, Menu, X, Headphones, User
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/utils/cn';
 
-export type ActivePage = 'chat' | 'history' | 'monitoring' | 'cs-dashboard' | 'manage-users' | 'knowledge-base';
+export type ActivePage = 'chat' | 'history' | 'monitoring' | 'cs-dashboard' | 'manage-users' | 'knowledge-base' | 'chatbot' | 'monthly-report';
 
 interface SidebarNavProps {
   bottomContent?: React.ReactNode;
@@ -67,7 +67,8 @@ export function SidebarNav({ bottomContent }: SidebarNavProps) {
         {/* Nav — admin */}
         {isAdmin && (
           <nav className="px-4 flex flex-col gap-1 shrink-0">
-            <NavBtn icon={<BarChart3 size={18} />} label="Monitoring & Report" active={activePage === 'monitoring'} onClick={() => handleNavigate('monitoring')} />
+            <NavBtn icon={<BotMessageSquare size={18} />} label="Chatbot" active={activePage === 'chatbot'} onClick={() => handleNavigate('chatbot')} />
+            <NavBtn icon={<BarChart3 size={18} />} label="Monitoring" active={activePage === 'monitoring'} onClick={() => handleNavigate('monitoring')} />
             <NavBtn icon={<BookOpen size={18} />} label="Knowledge Base" active={activePage === 'knowledge-base'} onClick={() => handleNavigate('knowledge-base')} />
             <NavBtn icon={<Users size={18} />} label="Kelola Akun CS" active={activePage === 'manage-users'} onClick={() => handleNavigate('manage-users')} />
           </nav>

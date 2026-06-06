@@ -44,6 +44,8 @@ function AppRoutes() {
         <>
           <Route path="/" element={<Navigate to="/monitoring" replace />} />
           <Route path="/monitoring" element={<MonitoringPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="/chatbot" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="/monthly-report" element={<MonitoringPage onNavigate={p => navigate(`/${p}`)} />} />
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
           <Route path="/manage-users" element={<ManageUsersPage />} />
         </>

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { User } from '@/types';
+import { loginAPI, registerAPI, createCSUser, deleteCSUser, updateCSUser as updateCSUserAPI, getCSUsers } from '@/services/api';
 
 interface AuthContextType {
   user: User | null;
@@ -7,87 +8,117 @@ interface AuthContextType {
   register: (name: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
-  // Admin: tambah akun CS
   addCSUser: (name: string, email: string, password: string) => Promise<boolean>;
-  removeCSUser: (id: string) => void;
+  removeCSUser: (id: string) => Promise<boolean>;
+  updateCSUser: (id: string, name: string, email: string, password?: string) => Promise<boolean>;
   csUsers: User[];
+  refreshCSUsers: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Mock users — nanti diganti dengan hit backend
-const INITIAL_MOCK_USERS: (User & { password: string })[] = [
-  { id: '1', name: 'Admin Epson', email: 'admin@epson.com', role: 'admin', password: 'admin123' },
-  { id: '2', name: 'Budi Santoso', email: 'user@epson.com', role: 'user', password: 'user123' },
-  { id: '3', name: 'John CS', email: 'cs@epson.com', role: 'cs', password: 'cs123' },
-];
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    // Try to restore session from localStorage
+    const token = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    if (token && savedUser) {
+      try {
+        return JSON.parse(savedUser);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
   const [isLoading, setIsLoading] = useState(false);
-  const [mockUsers, setMockUsers] = useState(INITIAL_MOCK_USERS);
+  const [csUsers, setCsUsers] = useState<User[]>([]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 600));
-    const found = mockUsers.find((u) => u.email === email && u.password === password);
-    if (found) {
-      const { password: _, ...userWithoutPassword } = found;
-      setUser(userWithoutPassword);
+    try {
+      const data = await loginAPI(email, password);
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setUser(data.user);
       setIsLoading(false);
       return true;
+    } catch (err) {
+      console.error('Login error:', err);
+      setIsLoading(false);
+      return false;
     }
-    setIsLoading(false);
-    return false;
   };
 
-  const register = async (name: string, email: string, _password: string): Promise<boolean> => {
+  const register = async (name: string, email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 600));
-    const exists = mockUsers.find(u => u.email === email);
-    if (exists) { setIsLoading(false); return false; }
-    const newUser: User & { password: string } = {
-      id: Date.now().toString(),
-      name,
-      email,
-      role: 'user',
-      password: _password,
-    };
-    setMockUsers(prev => [...prev, newUser]);
-    const { password: _, ...userWithoutPassword } = newUser;
-    setUser(userWithoutPassword);
-    setIsLoading(false);
-    return true;
+    try {
+      const data = await registerAPI(name, email, password);
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setUser(data.user);
+      setIsLoading(false);
+      return true;
+    } catch (err) {
+      console.error('Register error:', err);
+      setIsLoading(false);
+      return false;
+    }
   };
 
-  // Hanya admin yang bisa panggil ini
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    setCsUsers([]);
+  };
+
+  const refreshCSUsers = async () => {
+    try {
+      const data = await getCSUsers();
+      // Filter only customer_service role
+      const csList = (data.users || []).filter((u: any) => u.role === 'customer_service');
+      setCsUsers(csList);
+    } catch (err) {
+      console.error('Failed to fetch CS users:', err);
+    }
+  };
+
   const addCSUser = async (name: string, email: string, password: string): Promise<boolean> => {
-    await new Promise((r) => setTimeout(r, 400));
-    const exists = mockUsers.find(u => u.email === email);
-    if (exists) return false;
-    const newCS: User & { password: string } = {
-      id: Date.now().toString(),
-      name,
-      email,
-      role: 'cs',
-      password,
-    };
-    setMockUsers(prev => [...prev, newCS]);
-    return true;
+    try {
+      await createCSUser(email, password, name);
+      await refreshCSUsers();
+      return true;
+    } catch (err) {
+      console.error('Add CS error:', err);
+      return false;
+    }
   };
 
-  const removeCSUser = (id: string) => {
-    setMockUsers(prev => prev.filter(u => u.id !== id));
+  const removeCSUser = async (id: string): Promise<boolean> => {
+    try {
+      await deleteCSUser(id);
+      setCsUsers(prev => prev.filter(u => u.id !== id));
+      return true;
+    } catch (err) {
+      console.error('Remove CS error:', err);
+      return false;
+    }
   };
 
-  const csUsers = mockUsers
-    .filter(u => u.role === 'cs')
-    .map(({ password: _, ...u }) => u);
-
-  const logout = () => setUser(null);
+  const updateCSUser = async (id: string, name: string, email: string, password?: string): Promise<boolean> => {
+    try {
+      await updateCSUserAPI(id, name, email, password);
+      await refreshCSUsers();
+      return true;
+    } catch (err) {
+      console.error('Update CS error:', err);
+      return false;
+    }
+  };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, isLoading, addCSUser, removeCSUser, csUsers }}>
+    <AuthContext.Provider value={{ user, login, register, logout, isLoading, addCSUser, removeCSUser, updateCSUser, csUsers, refreshCSUsers }}>
       {children}
     </AuthContext.Provider>
   );

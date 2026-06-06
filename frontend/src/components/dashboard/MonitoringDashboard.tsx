@@ -1,14 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  AlertCircle, CheckCircle2, Clock, Download, 
-  TrendingUp, TrendingDown, BarChart3, Calendar 
+import React, { useState, useEffect } from 'react';
+import {
+  AlertCircle, CheckCircle2, Clock, Download,
+  TrendingUp, TrendingDown, BarChart3, Calendar
 } from 'lucide-react';
-import { useChat } from '@/contexts/ChatContext';
+import { getMonitoringData } from '@/services/api';
 import { downloadMonthlyReportPDF } from '@/utils/pdf';
 
-// --- CONSTANTS ---
-// Catatan: Top Issues idealnya dikirim dari backend berdasarkan hasil analisa AI (NLP) 
-// terhadap keluhan terbanyak di bulan tersebut.
 const TOP_ISSUES = [
   'Tinta tidak terbaca',
   'Printer tidak jalan',
@@ -23,57 +20,48 @@ const MONTHS = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
-export default function MonitoringDashboard() {
-  const { sessions } = useChat();
+interface MonitoringStats {
+  total: number;
+  solved: number;
+  pending: number;
+  totalChange: string;
+  solvedChange: string;
+  pendingChange: string;
+  isTotalUp: boolean;
+  isSolvedUp: boolean;
+  isPendingUp: boolean;
+}
 
+export default function MonitoringDashboard() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [stats, setStats] = useState<MonitoringStats>({
+    total: 0, solved: 0, pending: 0,
+    totalChange: '0%', solvedChange: '0%', pendingChange: '0%',
+    isTotalUp: true, isSolvedUp: true, isPendingUp: true,
+  });
 
-  // Logika Hitung Berdasarkan Data Masuk (Dinamis 100%)
-  const stats = useMemo(() => {
-    // 1. Data Bulan Ini
-    const currentMonthSessions = sessions.filter(s => {
-      const date = new Date(s.timestamp);
-      return date.getMonth() === selectedMonth && date.getFullYear() === selectedYear;
-    });
-
-    const total = currentMonthSessions.length;
-    const solved = currentMonthSessions.filter(s => s.status === 'solved').length;
-    const pending = total - solved;
-
-    // 2. Data Bulan Lalu (Untuk menghitung persentase perubahan)
-    const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
-    const prevYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
-    
-    const prevMonthSessions = sessions.filter(s => {
-      const date = new Date(s.timestamp);
-      return date.getMonth() === prevMonth && date.getFullYear() === prevYear;
-    });
-
-    const prevTotal = prevMonthSessions.length;
-    const prevSolved = prevMonthSessions.filter(s => s.status === 'solved').length;
-    const prevPending = prevTotal - prevSolved;
-
-    // 3. Fungsi pembantu untuk format persentase
-    const getChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? '+100%' : '0%';
-      const diff = ((current - previous) / previous) * 100;
-      return `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const data = await getMonitoringData();
+        setStats({
+          total: data.total_chats || 0,
+          solved: data.solved_chats || 0,
+          pending: data.pending_chats || 0,
+          totalChange: data.total_change || '0%',
+          solvedChange: data.solved_change || '0%',
+          pendingChange: data.pending_change || '0%',
+          isTotalUp: (data.total_change || '0%').startsWith('+') || (data.total_change || '0%') === '0%',
+          isSolvedUp: (data.solved_change || '0%').startsWith('+') || (data.solved_change || '0%') === '0%',
+          isPendingUp: (data.pending_change || '0%').startsWith('+') || (data.pending_change || '0%') === '0%',
+        });
+      } catch (err) {
+        console.error('Failed to load monitoring data:', err);
+      }
     };
-
-    return {
-      total,
-      solved,
-      pending,
-      totalChange: getChange(total, prevTotal),
-      solvedChange: getChange(solved, prevSolved),
-      pendingChange: getChange(pending, prevPending),
-      // Cek apakah trend-nya naik atau turun
-      isTotalUp: total >= prevTotal,
-      isSolvedUp: solved >= prevSolved,
-      isPendingUp: pending >= prevPending,
-    };
-  }, [sessions, selectedMonth, selectedYear]);
+    fetchData();
+  }, [selectedMonth, selectedYear]);
 
   const handleDownload = async () => {
     const monthLabel = `${MONTHS[selectedMonth]} ${selectedYear}`;
@@ -87,7 +75,6 @@ export default function MonitoringDashboard() {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-8 sm:px-8">
-      {/* Header & Filter Area */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-8">
         <div className="pl-12 sm:pl-0">
           <h1 className="text-xl sm:text-2xl font-bold text-gray-800 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -101,16 +88,15 @@ export default function MonitoringDashboard() {
           </p>
         </div>
 
-        {/* Filter Dropdown */}
         <div className="flex flex-wrap items-center gap-2 bg-white p-2 sm:p-3 rounded-xl border border-gray-100 shadow-sm mt-2 lg:mt-0">
-          <select 
+          <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
             className="text-xs sm:text-sm font-bold text-gray-600 outline-none bg-transparent border-r pr-2 cursor-pointer"
           >
             {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
           </select>
-          <select 
+          <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value))}
             className="text-xs sm:text-sm font-bold text-gray-600 outline-none bg-transparent pr-2 cursor-pointer"
@@ -121,7 +107,6 @@ export default function MonitoringDashboard() {
         </div>
       </div>
 
-      {/* Stat cards - Diubah menjadi grid-cols-3 di mobile dengan gap kecil */}
       <div className="grid grid-cols-3 gap-2 sm:gap-5 mb-8">
         <StatCard
           label="Total"
@@ -153,7 +138,6 @@ export default function MonitoringDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 grid-cols-2">
-        {/* Top Issues */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
           <h2 className="text-sm sm:text-base font-bold text-gray-700 mb-4 sm:mb-5 text-center">Top Masalah</h2>
           <div className="flex flex-col divide-y divide-gray-50">
@@ -168,7 +152,6 @@ export default function MonitoringDashboard() {
           </div>
         </div>
 
-        {/* Laporan Bulanan */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
           <h2 className="text-sm sm:text-base font-bold text-gray-700 mb-4 sm:mb-5 text-center">Laporan Tersedia</h2>
           <div className="flex flex-col gap-2">
@@ -199,7 +182,6 @@ export default function MonitoringDashboard() {
   );
 }
 
-// --- Komponen StatCard (Diperbarui untuk Mobile) ---
 interface StatCardProps {
   label: string;
   value: number;
@@ -220,8 +202,7 @@ function StatCard({ label, value, change, up, icon, bg, ring }: StatCardProps) {
         </div>
       </div>
       <p className="text-xl sm:text-4xl font-bold text-gray-800">{value}</p>
-      
-      {/* Indikator Persentase */}
+
       <div className="flex items-center gap-1 text-[9px] sm:text-xs font-medium mt-auto">
         {up ? (
           <TrendingUp size={12} className="text-green-500 sm:w-3 sm:h-3" />
