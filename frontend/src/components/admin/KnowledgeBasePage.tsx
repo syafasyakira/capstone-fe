@@ -1,3 +1,5 @@
+// src/pages/admin/KnowledgeBasePage.tsx
+
 import React, { useState, useEffect } from 'react';
 import { SidebarNav } from '@/components/layout/AppLayout';
 import { BookOpen, Plus, Pencil, Trash2, X, AlertCircle, CheckCircle, Search, Loader2 } from 'lucide-react';
@@ -27,9 +29,10 @@ export default function KnowledgeBasePage() {
     setFetchError('');
     try {
       const data = await getKnowledge();
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
     } catch {
-      setFetchError('Gagal memuat data. Pastikan backend berjalan.');
+      setItems([]);
+      setFetchError('Gagal memuat data. Pastikan database dan backend berjalan.');
     } finally {
       setLoading(false);
     }
@@ -46,8 +49,9 @@ export default function KnowledgeBasePage() {
 
   const openEdit = (item: KnowledgeItem) => {
     setEditingItem(item);
-    setFormQuestion(item.question);
-    setFormAnswer(item.answer);
+    // Toleransi jika database menggunakan kolom Indonesia (pertanyaan/jawaban)
+    setFormQuestion(item.question || (item as any).pertanyaan || '');
+    setFormAnswer(item.answer || (item as any).jawaban || '');
     setFormError('');
     setFormSuccess('');
     setShowModal(true);
@@ -63,48 +67,54 @@ export default function KnowledgeBasePage() {
     setFormLoading(true);
     try {
       if (editingItem) {
-        const updated = await updateKnowledge(editingItem.id, { question: formQuestion.trim(), answer: formAnswer.trim() });
+        const updated = await updateKnowledge(editingItem.id, { 
+          question: formQuestion.trim(), 
+          answer: formAnswer.trim() 
+        });
         setItems(prev => prev.map(i => i.id === updated.id ? updated : i));
         setFormSuccess('Data berhasil diperbarui');
       } else {
-        const added = await addKnowledge({ question: formQuestion.trim(), answer: formAnswer.trim() });
-        setItems(prev => [...prev, added]);
+        const added = await addKnowledge({ 
+          question: formQuestion.trim(), 
+          answer: formAnswer.trim() 
+        });
+        setItems(prev => [added, ...prev]);
         setFormSuccess('Data berhasil ditambahkan');
       }
-      setTimeout(() => { setShowModal(false); setFormSuccess(''); }, 1200);
-    } catch {
-      setFormError('Gagal menyimpan data. Coba lagi.');
+      setTimeout(() => { setShowModal(false); setFormSuccess(''); fetchItems(); }, 1200);
+    } catch (err: any) {
+      setFormError('Gagal menyimpan data ke sistem. Coba lagi.');
     } finally {
       setFormLoading(false);
     }
   };
 
   const handleDelete = async (item: KnowledgeItem) => {
-    if (!confirm(`Hapus pertanyaan "${item.question}"?`)) return;
+    const itemQuestion = item.question || (item as any).pertanyaan || 'Data ini';
+    if (!confirm(`Hapus pertanyaan "${itemQuestion}"?`)) return;
     try {
       await deleteKnowledge(item.id);
       setItems(prev => prev.filter(i => i.id !== item.id));
     } catch {
-      alert('Gagal menghapus data.');
+      alert('Gagal menghapus data dari database.');
     }
   };
 
-  const filtered = items.filter(
-    i =>
-      i.question.toLowerCase().includes(query.toLowerCase()) ||
-      i.answer.toLowerCase().includes(query.toLowerCase())
-  );
+  // 🔥 FIX UTAMA ANTI-BLANK: Mengamankan fungsi toLowerCase() dengan Fallback String Kosong
+  const filtered = items.filter(i => {
+    const q = (i.question || (i as any).pertanyaan || '').toLowerCase();
+    const a = (i.answer || (i as any).jawaban || '').toLowerCase();
+    const search = (query || '').toLowerCase();
+    return q.includes(search) || a.includes(search);
+  });
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-gray-50">
       <SidebarNav />
-      {/* Padding disamakan persis dengan Monitoring (px-4 py-8 sm:px-8) */}
       <div className="flex-1 overflow-y-auto px-4 py-8 sm:px-8 w-full">
         
-        {/* Header & Action Area (Meniru struktur lg:flex-row di Monitoring) */}
+        {/* Header & Action Area */}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-8">
-          
-          {/* Sisi Kiri: Judul dan Deskripsi */}
           <div className="pl-12 sm:pl-0">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800 flex flex-col gap-2 sm:flex-row sm:items-center">
               <span className="flex items-center gap-2">
@@ -113,11 +123,10 @@ export default function KnowledgeBasePage() {
               </span>
             </h1>
             <p className="text-xs sm:text-sm text-gray-500 mt-2">
-              Data pertanyaan & jawaban untuk RAG AI — tersimpan ke <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] sm:text-xs">faq_dummy_data.csv</code>
+              Data pertanyaan & jawaban untuk RAG AI — tersimpan di <code className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-semibold">Supabase PostgreSQL</code> dan disinkronkan ke cache <code className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] sm:text-xs">CSV RAG</code>
             </p>
           </div>
 
-          {/* Sisi Kanan: Search & Tombol Tambah berjejer rapi */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-2 lg:mt-0 w-full lg:w-auto">
             <div className="relative flex-1 sm:w-64 lg:w-80 shadow-sm rounded-xl">
               <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -154,7 +163,7 @@ export default function KnowledgeBasePage() {
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400 bg-white border border-gray-100 rounded-xl sm:rounded-2xl shadow-sm">
             <BookOpen size={36} className="mb-3 opacity-40 sm:w-10 sm:h-10" />
-            <p className="text-xs sm:text-sm">{query ? 'Tidak ada hasil pencarian' : 'Belum ada data. Klik "Tambah Data" untuk mulai.'}</p>
+            <p className="text-xs sm:text-sm">{query ? 'Tidak ada hasil pencarian' : 'Belum ada data di database. Klik "Tambah Data" untuk mulai.'}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2.5 sm:gap-3 w-full">
@@ -167,12 +176,16 @@ export default function KnowledgeBasePage() {
                     {idx + 1}
                   </span>
                   <div className="flex-1 min-w-0 pt-0.5">
-                    <p className="font-semibold text-gray-800 text-[13px] sm:text-base mb-1.5 line-clamp-2">{item.question}</p>
-                    <p className="text-[11px] sm:text-sm text-gray-500 leading-relaxed line-clamp-2 sm:line-clamp-3">{item.answer}</p>
+                    {/* Mengantisipasi toleransi render jika properti berstruktur Indonesia */}
+                    <p className="font-semibold text-gray-800 text-[13px] sm:text-base mb-1.5 line-clamp-2">
+                      {item.question || (item as any).pertanyaan || ''}
+                    </p>
+                    <p className="text-[11px] sm:text-sm text-gray-500 leading-relaxed line-clamp-2 sm:line-clamp-3">
+                      {item.answer || (item as any).jawaban || ''}
+                    </p>
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-end sm:self-center w-full sm:w-auto justify-end mt-1 sm:mt-0 pt-3 sm:pt-0 border-t sm:border-0 border-gray-50">
                   <button onClick={() => openEdit(item)}
                     className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg sm:rounded-xl bg-blue-50 hover:bg-blue-100 transition-all"
@@ -191,7 +204,7 @@ export default function KnowledgeBasePage() {
           </div>
         )}
 
-        {/* Modal tambah/edit (Tetap sama, sudah dioptimasi di versi sebelumnya) */}
+        {/* Modal tambah/edit */}
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 sm:p-0 backdrop-blur-sm">
             <div className="bg-white rounded-2xl p-5 sm:p-7 w-full max-w-lg shadow-2xl max-h-[90dvh] flex flex-col">

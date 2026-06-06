@@ -1,6 +1,16 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback, useRef } from "react";
+// ChatContext.tsx
+
+import React, { createContext, useContext, useState, ReactNode, useCallback } from "react";
 import { ChatMessage, ChatSession } from "@/types";
-import { getUserChats, getChatHistory, escalateToCS as escalateToCSAPI, getCSAutoAssignedChat, sendCSMessage, updateCSChatStatus } from "@/services/api";
+import {
+  getUserChats,
+  getChatHistory,
+  getCSChatDetail,
+  escalateToCS as escalateToCSAPI,
+  getCSAutoAssignedChat,
+  sendCSMessage,
+  updateCSChatStatus,
+} from "@/services/api";
 
 interface ChatContextType {
   sessions: ChatSession[];
@@ -16,6 +26,8 @@ interface ChatContextType {
   csClaimSession: (sessionId: string) => Promise<void>;
   csReplyToSession: (sessionId: string, message: string) => Promise<void>;
   csMarkSession: (sessionId: string, status: string) => Promise<void>;
+  setCurrentChatId: (id: string | null) => void;
+  resetChatSession: () => void; // FIX: Daftarkan fungsi reset di interface context
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -26,25 +38,38 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const chatIdMap = useRef<Map<string, string>>(new Map());
+
+  const mapMessages = (rawMessages: any[]): ChatMessage[] =>
+    rawMessages.map((msg: any) => ({
+      id: msg.id,
+      role: msg.role === 'assistant' ? 'bot' : msg.role,
+      content: msg.content,
+      imageUrl: msg.image_url,
+      createdAt: msg.created_at,
+      timestamp: new Date(msg.created_at),
+    }));
+
+  // FIX: Fungsi pembersih session aktif agar sidebar mengarah ke chat baru kosong
+  const resetChatSession = useCallback(() => {
+    setCurrentChatId(null);
+    setCurrentSessionId(null);
+  }, []);
 
   const loadUserSessions = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const chats = await getUserChats();
+      const data = await getUserChats();
+      const chats = data.chats || data || [];
       const sessionsFromChats: ChatSession[] = chats.map((chat: any) => ({
         id: chat.id,
-        title: chat.title || `Chat ${chat.id}`,
+        title: chat.title || `Chat ${chat.id.substring(0, 8)}`,
+        preview: chat.preview,
         createdAt: chat.created_at,
         updatedAt: chat.updated_at,
-        status: chat.status,
+        status: chat.status as ChatSession['status'], // FIX: Type safety cast
+        messages: [],
       }));
-      chatIdMap.current.clear();
-      sessionsFromChats.forEach((s) => {
-        const chatId = chats.find((c: any) => c.id === s.id)?.chat_id;
-        if (chatId) chatIdMap.current.set(s.id, chatId);
-      });
       setSessions(sessionsFromChats);
     } catch (err: any) {
       setError(err.message || "Failed to load sessions");
@@ -61,16 +86,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const csChats = data.chats || [];
       const sessionsFromChats: ChatSession[] = csChats.map((chat: any) => ({
         id: chat.id,
-        title: chat.title || `Chat ${chat.id}`,
+        title: chat.title || `Chat ${chat.id.substring(0, 8)}`,
+        preview: chat.preview,
         createdAt: chat.created_at,
         updatedAt: chat.updated_at,
-        status: chat.status,
+        status: chat.status as ChatSession['status'],
+        messages: [],
+        assignedToCSId: chat.assignedToCSId || chat.cs_id || null,
+        userName: chat.userName || chat.profiles?.full_name || 'User',
+        csHandlerName: chat.csHandlerName || null,
       }));
-      chatIdMap.current.clear();
-      sessionsFromChats.forEach((s) => {
-        const chatId = csChats.find((c: any) => c.id === s.id)?.chat_id;
-        if (chatId) chatIdMap.current.set(s.id, chatId);
-      });
       setSessions(sessionsFromChats);
     } catch (err: any) {
       setError(err.message || "Failed to load CS sessions");
@@ -79,29 +104,39 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Load session + history untuk customer (pakai /api/chat/:id)
   const loadSession = useCallback(async (sessionId: string) => {
     setCurrentSessionId(sessionId);
-    setCurrentChatId(chatIdMap.current.get(sessionId) || null);
+    setCurrentChatId(sessionId);
     setIsLoading(true);
     setError(null);
     try {
-      const backendChatId = chatIdMap.current.get(sessionId) || sessionId;
-      const data = await getChatHistory(backendChatId);
+      const data = await getChatHistory(sessionId);
       const chat = data.chat;
-      const messagesFromChat: ChatMessage[] = (chat.messages || []).map((msg: any) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        imageUrl: msg.image_url,
-        createdAt: msg.created_at,
-      }));
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionId
-            ? { ...s, messages: messagesFromChat }
-            : s
-        )
-      );
+      const messagesFromChat = mapMessages(data.messages || []);
+
+      setSessions((prev) => {
+        const exists = prev.find((s) => s.id === sessionId);
+        if (exists) {
+          return prev.map((s) =>
+            s.id === sessionId
+              ? { ...s, messages: messagesFromChat, status: (chat?.status || s.status) as ChatSession['status'] }
+              : s
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: sessionId,
+            title: chat?.title || `Chat ${sessionId.substring(0, 8)}`,
+            preview: chat?.preview,
+            createdAt: chat?.created_at,
+            updatedAt: chat?.updated_at,
+            status: (chat?.status || 'ai') as ChatSession['status'],
+            messages: messagesFromChat,
+          },
+        ];
+      });
     } catch (err: any) {
       setError(err.message || "Failed to load session");
     } finally {
@@ -113,11 +148,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const backendChatId = chatIdMap.current.get(sessionId) || sessionId;
-      await escalateToCSAPI(backendChatId, reason);
+      await escalateToCSAPI(sessionId, reason);
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === sessionId ? { ...s, status: "waiting_cs" } : s
+          s.id === sessionId ? { ...s, status: "waiting_cs" as ChatSession['status'] } : s
         )
       );
     } catch (err: any) {
@@ -134,10 +168,37 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       const { sendMessageToAI } = await import("@/services/api");
       const result = await sendMessageToAI(message, imageUrl, [], currentChatId || undefined);
-      if (currentChatId) {
-        setCurrentChatId(result.chat_id || currentChatId);
-        chatIdMap.current.set(currentSessionId || "", result.chat_id);
+
+      if (result.chat_id && result.chat_id !== currentChatId) {
+        setCurrentChatId(result.chat_id);
+        setCurrentSessionId(result.chat_id);
+
+        setSessions((prev) => {
+          const exists = prev.find((s) => s.id === result.chat_id);
+          if (exists) return prev;
+          return [
+            {
+              id: result.chat_id,
+              title: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+              preview: message.substring(0, 100),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              status: (result.status || 'ai') as ChatSession['status'], 
+              messages: [],
+            },
+            ...prev,
+          ];
+        });
+      } else if (currentChatId) {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === currentChatId 
+              ? { ...s, status: (result.status || s.status) as ChatSession['status'] } 
+              : s
+          )
+        );
       }
+
       return result;
     } catch (err: any) {
       setError(err.message || "Failed to send message");
@@ -145,19 +206,46 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [currentChatId, currentSessionId]);
+  }, [currentChatId]);
 
   const csClaimSession = useCallback(async (sessionId: string) => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const backendChatId = chatIdMap.current.get(sessionId) || sessionId;
-      const data = await getCSAutoAssignedChat();
-      const chat = data.chats?.find((c: any) => c.id === backendChatId || c.chat_id === backendChatId);
-      if (chat) {
-        setCurrentChatId(chat.chat_id || chat.id);
-        chatIdMap.current.set(sessionId, chat.chat_id || chat.id);
-      }
+      const data = await getCSChatDetail(sessionId);
+      const chat = data.chat;
+      const rawMessages = data.messages || [];
+
+      const messagesFromChat: ChatMessage[] = rawMessages.map((msg: any) => ({
+        id: msg.id,
+        role: msg.role === 'assistant' ? 'bot' : msg.role, 
+        content: msg.content,
+        imageUrl: msg.image_url,
+        createdAt: msg.created_at,
+        timestamp: new Date(msg.created_at),
+      }));
+
+      setCurrentChatId(sessionId);
+      setCurrentSessionId(sessionId);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === sessionId
+            ? {
+                ...s,
+                messages: messagesFromChat,
+                status: (chat?.status || 'with_cs') as ChatSession['status'],
+                assignedToCSId: chat?.cs_id || s.assignedToCSId,
+                userName: chat?.profiles?.full_name || s.userName || 'User',
+              }
+            : s
+        )
+      );
     } catch (err: any) {
-      console.error("Claim session error:", err);
+      setError(err.message || "Failed to claim session");
+      throw err;
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
@@ -165,15 +253,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const backendChatId = chatIdMap.current.get(sessionId) || sessionId;
-      await sendCSMessage(backendChatId, message);
-      const data = await getChatHistory(backendChatId);
-      const messagesFromChat: ChatMessage[] = (data.chat?.messages || []).map((msg: any) => ({
+      await sendCSMessage(sessionId, message);
+      const data = await getCSChatDetail(sessionId);
+      const rawMessages = data.messages || [];
+      const messagesFromChat: ChatMessage[] = rawMessages.map((msg: any) => ({
         id: msg.id,
-        role: msg.role,
+        role: msg.role === 'assistant' ? 'bot' : msg.role,
         content: msg.content,
         imageUrl: msg.image_url,
         createdAt: msg.created_at,
+        timestamp: new Date(msg.created_at),
       }));
       setSessions((prev) =>
         prev.map((s) =>
@@ -192,11 +281,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const backendChatId = chatIdMap.current.get(sessionId) || sessionId;
-      await updateCSChatStatus(backendChatId, status);
+      await updateCSChatStatus(sessionId, status);
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === sessionId ? { ...s, status } : s
+          s.id === sessionId ? { ...s, status: status as ChatSession['status'] } : s
         )
       );
     } catch (err: any) {
@@ -222,6 +310,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       csClaimSession,
       csReplyToSession,
       csMarkSession,
+      setCurrentChatId,
+      resetChatSession, // FIX: Ekspos fungsi reset ke provider value
     }}>
       {children}
     </ChatContext.Provider>

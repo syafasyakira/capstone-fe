@@ -1,3 +1,5 @@
+// src/components/chat/ChatPage.tsx
+
 import React, { useEffect, useRef, useState } from 'react';
 import { BotMessageSquare, PlusCircle, Headphones } from 'lucide-react';
 import { useChat } from '@/contexts/ChatContext';
@@ -8,7 +10,8 @@ import ChatInput from '@/components/chat/ChatInput';
 import SummaryBubble from '@/components/chat/SummaryBubble';
 import FAQPanel from '@/components/chat/FAQPanel';
 import { ChatMessage } from '@/types';
-import { getAISummary } from '@/services/api';
+import { getAISummary, getChatHistory } from '@/services/api';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const QUICK_REPLIES = ['Printer tidak dapat mencetak', 'Cara install driver', 'Cara mengisi tinta'];
 
@@ -27,8 +30,12 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
   const {
     sessions, currentSessionId, currentChatId,
     sendMessage, loadSession, loadUserSessions, escalateToCS,
+    setCurrentChatId,
     isLoading, error,
   } = useChat();
+
+  const { sessionId: urlSessionId } = useParams<{ sessionId?: string }>();
+  const navigate = useNavigate();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<ExtendedMessage[]>([]);
@@ -40,33 +47,153 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
   const [summaryAccepted, setSummaryAccepted] = useState(false);
   const [showSummaryPrompt, setShowSummaryPrompt] = useState(false);
   const [currentSession, setCurrentSession] = useState<any>(null);
+  const initialized = useRef(false);
+
+  // Ref agar polling & handler selalu baca nilai terbaru tanpa re-create interval
+  const currentChatIdRef = useRef<string | null>(null);
+  useEffect(() => { currentChatIdRef.current = currentChatId; }, [currentChatId]);
+
+  const loadedSessionIdRef = useRef<string | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Ref untuk melacak apakah sudah ada summary di sesi ini
+  const summaryShownRef = useRef(false);
 
   const today = new Date().toLocaleDateString('id-ID', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
   useEffect(() => {
-    loadUserSessions().then(() => {
-      if (sessions.length === 0) {
-        setCurrentSession({ id: 'new', title: 'New Chat', messages: [] });
-      } else {
-        const latest = sessions[sessions.length - 1];
-        setCurrentSession(latest);
-        loadSession(latest.id);
-      }
-    });
+    if (initialized.current) return;
+    initialized.current = true;
+    loadUserSessions();
   }, []);
 
+  // FIX 1: Bersihkan state jika masuk ke rute /chat polosan tanpa parameter URL
   useEffect(() => {
+    if (!urlSessionId) {
+      setMessages([]);
+      setCurrentSession(null);
+      loadedSessionIdRef.current = null;
+      summaryShownRef.current = false;
+      setShowSummaryPrompt(false);
+      return;
+    }
+    if (loadedSessionIdRef.current === urlSessionId) return;
+    loadSession(urlSessionId);
+  }, [urlSessionId]);
+
+  // FIX 2: Bersihkan layar jika currentSessionId diset null oleh resetChatSession() di sidebar
+  useEffect(() => {
+    if (!currentSessionId) {
+      setMessages([]);
+      setCurrentSession(null);
+      loadedSessionIdRef.current = null;
+      summaryShownRef.current = false;
+      setShowSummaryPrompt(false);
+      return;
+    }
+
+    if (loadedSessionIdRef.current === currentSessionId) return;
+
     const session = sessions.find(s => s.id === currentSessionId);
     if (session) {
       setCurrentSession(session);
-      setMessages(session.messages?.map((m: ChatMessage) => ({ ...m })) || []);
-      if (session.messages?.length >= 8) {
-        setShowSummaryPrompt(true);
+      const msgs = (session.messages || []).map((m: ChatMessage) => ({ ...m }));
+      if (msgs.length > 0) {
+        // Jangan overwrite kalau session ini sudah di-handle handleSend (loadedSessionIdRef sudah diset)
+        if (loadedSessionIdRef.current !== currentSessionId) {
+          setMessages(msgs);
+          loadedSessionIdRef.current = currentSessionId;
+          summaryShownRef.current = false;
+          checkAndShowSummaryPrompt(msgs);
+        }
+      } else if (loadedSessionIdRef.current !== currentSessionId) {
+        setMessages([]);
       }
     }
+  }, [currentSessionId, sessions]);
+
+  // Update metadata session (status, dll) tanpa overwrite messages
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const session = sessions.find(s => s.id === currentSessionId);
+    if (session) {
+      setCurrentSession((prev: any) => ({
+        ...session,
+        messages: session.messages?.length ? session.messages : prev?.messages,
+        csHandlerName: session.csHandlerName || prev?.csHandlerName,
+      }));
+    }
   }, [sessions, currentSessionId]);
+
+  // Polling HANYA aktif saat CS mode (with_cs / waiting_cs)
+  const isCSMode = currentSession?.status === 'with_cs' || currentSession?.status === 'waiting_cs';
+  const isSolved = currentSession?.status === 'solved';
+
+  useEffect(() => {
+    const chatId = currentChatId || currentSessionId;
+
+    if (!isCSMode || !chatId || isSolved) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+
+    const pollMessages = async () => {
+      if (isTyping) return;
+      try {
+        const data = await getChatHistory(chatId);
+        const newMsgs: ChatMessage[] = (data.messages || []).map((msg: any) => ({
+          id: msg.id,
+          role: msg.role === 'assistant' ? 'bot' : msg.role,
+          content: msg.content,
+          imageUrl: msg.image_url,
+          createdAt: msg.created_at,
+          timestamp: new Date(msg.created_at),
+        }));
+
+        setMessages(prev => {
+          const prevIds = new Set(prev.filter(m => !m.isSummary).map(m => m.id));
+          const hasNew = newMsgs.some(m => !prevIds.has(m.id));
+          if (!hasNew) return prev;
+
+          const summaries = prev.filter(m => m.isSummary);
+          const merged = [...newMsgs, ...summaries].sort((a, b) => {
+            const ta = a.isSummary ? Infinity : new Date(a.createdAt || a.timestamp || 0).getTime();
+            const tb = b.isSummary ? Infinity : new Date(b.createdAt || b.timestamp || 0).getTime();
+            return ta - tb;
+          });
+          return merged;
+        });
+
+        if (data.chat) {
+          setCurrentSession((prev: any) => {
+            const csNameFromBackend = data.chat.cs?.full_name || data.chat.cs_name || null;
+            return prev 
+              ? { 
+                  ...prev, 
+                  status: data.chat.status,
+                  csHandlerName: csNameFromBackend || prev.csHandlerName 
+                } 
+              : prev;
+          });
+        }
+      } catch {
+        // silent fail
+      }
+    };
+
+    pollingRef.current = setInterval(pollMessages, 3000);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [isCSMode, currentChatId, currentSessionId, isTyping, isSolved]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -83,19 +210,20 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     }
   }, [isTyping]);
 
+  // Buat ringkasan setelah user setuju
   useEffect(() => {
     const run = async () => {
       if (summaryAccepted !== true || !currentSession) return;
       setIsTyping(true);
       try {
-        const chatHistory = currentSession.messages
-          .filter((m: any) => m.id !== 'welcome' && !m.id.startsWith('err-'))
+        const chatHistory = messages
+          .filter((m: any) => !m.isSummary && m.id !== 'welcome' && !m.id?.startsWith('err-'))
           .map((m: any) => ({
-            role: m.role === 'bot' ? 'assistant' : 'user',
+            role: m.role === 'bot' ? 'assistant' : m.role,
             content: typeof m.content === 'string' ? m.content : 'User mengirimkan gambar',
           }));
         const response = await getAISummary(chatHistory);
-        const newMsg = {
+        const newMsg: ExtendedMessage = {
           id: `summary-${Date.now()}`,
           role: 'bot',
           content: response.message,
@@ -103,7 +231,9 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
           isSummary: true,
           summaryContent: response.message,
         };
-        setMessages(prev => [...prev, newMsg as ExtendedMessage]);
+        setMessages(prev => [...prev, newMsg]);
+        setShowSummaryPrompt(false);
+        summaryShownRef.current = true;
       } catch (err) {
         console.error('Gagal membuat summary:', err);
       } finally {
@@ -112,9 +242,22 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
       }
     };
     run();
-  }, [summaryAccepted, currentSession?.id]);
+  }, [summaryAccepted]);
+
+  // Helper cek kelipatan 6, hanya tampilkan jika belum ada summary
+  const checkAndShowSummaryPrompt = (msgs: ExtendedMessage[]) => {
+    if (summaryShownRef.current) {
+      setShowSummaryPrompt(false);
+      return;
+    }
+    const realMsgs = msgs.filter(m => !m.isSummary && m.id !== 'welcome' && !m.id?.startsWith('err-'));
+    const count = realMsgs.length;
+    setShowSummaryPrompt(count > 0 && count % 6 === 0);
+  };
 
   const handleSend = async (content: string, imageUrl?: string) => {
+    if (isSolved) return;
+
     setShowSummaryPrompt(false);
     setResolvedActionMsgId(null);
     setResolvedState('none');
@@ -128,22 +271,35 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
     setIsTyping(true);
 
     try {
-      const chatHistory = (currentSession?.messages || [])
-        .filter((m: any) => m.id !== 'welcome')
-        .map((m: any) => ({
-          role: m.role === 'bot' ? 'assistant' : 'user',
-          content: typeof m.content === 'string' ? m.content : 'User mengirimkan gambar',
-        }));
       const response = await sendMessage(content, imageUrl);
-      const botMsgId = `bot-${Date.now()}`;
-      const botMsg: ChatMessage = {
-        id: botMsgId, role: 'bot', content: response.message, timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, botMsg]);
-      pendingResolvedMsgId.current = botMsgId;
-      if (currentSession?.messages?.length >= 6) {
-        setShowSummaryPrompt(true);
+      
+      if (response.chat_id) {
+        setCurrentChatId(response.chat_id);
+        // Set SEBELUM navigate agar useEffect([urlSessionId]) tidak re-trigger loadSession
+        // dan overwrite messages yang sudah kita append secara lokal
+        loadedSessionIdRef.current = response.chat_id;
+        if (!urlSessionId || urlSessionId !== response.chat_id) {
+          navigate(`/chat/${response.chat_id}`, { replace: true });
+        }
       }
+
+      if (response && response.message && response.message.trim() !== '') {
+        const botMsgId = response.id || `bot-${Date.now()}`;
+        const botMsg: ChatMessage = {
+          id: botMsgId, role: 'bot', content: response.message, timestamp: new Date(),
+          createdAt: response.created_at || new Date().toISOString(),
+        };
+
+        setMessages(prev => {
+          // Dedupe: jangan append kalau id sudah ada (guard dari polling race)
+          if (prev.some(m => m.id === botMsgId)) return prev;
+          const updated = [...prev.filter(m => m.id !== `user-temp`), botMsg];
+          checkAndShowSummaryPrompt(updated);
+          return updated;
+        });
+        pendingResolvedMsgId.current = botMsgId;
+      }
+
     } catch {
       const errMsg: ChatMessage = {
         id: `err-${Date.now()}`, role: 'bot',
@@ -157,39 +313,49 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
   };
 
   const handleResolvedAction = async (solved: boolean) => {
-    if (!currentSession) return;
+    const chatId = currentChatIdRef.current || currentSession?.id;
     setResolvedState(solved ? 'solved' : 'unsolved');
-    if (solved) {
-    } else {
+    if (!solved) {
       setShowEscalationText(true);
       try {
-        await escalateToCS(currentSession.id);
+        if (chatId && chatId !== 'new') await escalateToCS(chatId);
       } catch (err) {
         console.error('Escalate error:', err);
       }
+    } else {
+      setCurrentSession((prev: any) => prev ? { ...prev, status: 'solved' } : prev);
     }
   };
 
   const handleNewChat = () => {
     setSummaryAccepted(false);
     setShowSummaryPrompt(false);
+    summaryShownRef.current = false;
     setResolvedActionMsgId(null);
     setResolvedState('none');
     setShowEscalationText(false);
     pendingResolvedMsgId.current = null;
-    setCurrentSession({ id: 'new', title: 'New Chat', messages: [] });
+    loadedSessionIdRef.current = null;
+    setCurrentSession(null);
+    setCurrentChatId(null);
     setMessages([]);
+    navigate('/chat', { replace: true });
   };
 
-  const isCSMode = currentSession?.csActive === true;
-  const csHandlerName = currentSession?.csHandlerName ?? null;
+  const csHandlerName = currentSession?.csHandlerName || currentSession?.cs_name || null;
   const headerTitle = isCSMode && csHandlerName
-    ? `EPSON AI Assistant | ${csHandlerName}`
+    ? `EPSON Support | ${csHandlerName}`
+    : isSolved
+    ? 'EPSON Support | Diskusi Selesai'
     : 'EPSON AI Assistant';
 
   const acceptSummary = (accept: boolean) => {
-    setSummaryAccepted(accept);
-    if (!accept) setShowSummaryPrompt(false);
+    if (accept) {
+      setSummaryAccepted(true);
+    } else {
+      setShowSummaryPrompt(false);
+      summaryShownRef.current = true;
+    }
   };
 
   return (
@@ -202,7 +368,7 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
           <div className="flex items-center gap-3 overflow-hidden">
             <div
               className="w-10 h-10 rounded-full flex items-center justify-center shadow-sm shrink-0"
-              style={{ backgroundColor: 'var(--epson-blue-mid)' }}
+              style={{ backgroundColor: isSolved ? '#4b5563' : 'var(--epson-blue-mid)' }}
             >
               {isCSMode
                 ? <Headphones size={20} className="text-white" />
@@ -211,9 +377,14 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
             </div>
             <div className="min-w-0">
               <p className="font-bold text-gray-900 text-[15px] truncate">{headerTitle}</p>
-              <p className="text-xs flex items-center gap-1 text-green-500">
-                <span className="w-1.5 h-1.5 rounded-full inline-block bg-green-500 shrink-0 animate-pulse" />
-                Online - Siap membantu
+              <p className={`text-xs flex items-center gap-1 ${isSolved ? 'text-gray-500' : 'text-green-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${isSolved ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`} />
+                {isSolved 
+                  ? 'Sesi ditutup permanen'
+                  : isCSMode 
+                    ? (csHandlerName ? `Dilayani oleh ${csHandlerName}` : 'Menghubungkan ke CS...') 
+                    : 'Online - Siap membantu'
+                }
               </p>
             </div>
           </div>
@@ -230,6 +401,16 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
         </header>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 flex flex-col gap-1 custom-scrollbar min-w-0">
+          {messages.length === 0 && !isTyping && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center py-16 px-4">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: 'var(--epson-blue-mid)' }}>
+                <BotMessageSquare size={28} className="text-white" />
+              </div>
+              <p className="text-gray-700 font-semibold mb-1">Halo! Ada yang bisa saya bantu?</p>
+              <p className="text-gray-400 text-sm">Tanyakan seputar produk Epson Anda</p>
+            </div>
+          )}
+
           {messages.map((msg) =>
             msg.isSummary ? (
               <SummaryBubble
@@ -242,7 +423,7 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
               <MessageBubble
                 key={msg.id}
                 message={msg}
-                showResolvedActions={msg.id === resolvedActionMsgId && !isCSMode && !isTyping}
+                showResolvedActions={msg.id === resolvedActionMsgId && !isCSMode && !isSolved && !isTyping}
                 resolvedState={msg.id === resolvedActionMsgId ? resolvedState : 'none'}
                 onMarkSolved={handleResolvedAction}
                 csHandlerName={csHandlerName}
@@ -262,7 +443,7 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
             </div>
           )}
 
-          {showSummaryPrompt && !isTyping && !isCSMode && (
+          {showSummaryPrompt && !isTyping && !isCSMode && !isSolved && (
             <div className="flex flex-col items-center gap-3 py-6 animate-in fade-in slide-in-from-bottom-2 w-full px-2">
               <div className="h-[1px] w-full bg-gray-200" />
               <div className="flex flex-col sm:flex-row items-center gap-4 bg-blue-50 border border-blue-100 p-5 rounded-2xl w-full max-w-lg shadow-sm">
@@ -288,7 +469,27 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
         </div>
 
         <div className="bg-white border-t border-gray-100 shrink-0 min-w-0 w-full">
-          <ChatInput onSend={handleSend} disabled={isTyping} quickReplies={QUICK_REPLIES} />
+          {isCSMode && !isSolved && (
+            <div className="px-6 pt-3">
+              <p className="text-xs text-orange-600 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 text-center">
+                💬 Terhubung dengan {csHandlerName || 'Customer Service'} — ketik pesan untuk membalas
+              </p>
+            </div>
+          )}
+
+          {isSolved && (
+            <div className="px-6 pt-3">
+              <p className="text-xs text-gray-600 bg-gray-100 border border-gray-200 rounded-xl px-4 py-2 text-center font-medium">
+                🔒 Sesi diskusi ini telah selesai dan ditutup. Silakan klik ikon (+) di kanan atas untuk membuat "Chat Baru".
+              </p>
+            </div>
+          )}
+
+          <ChatInput 
+            onSend={handleSend} 
+            disabled={isTyping || isSolved} 
+            quickReplies={isCSMode || isSolved ? [] : QUICK_REPLIES} 
+          />
         </div>
       </div>
     </div>

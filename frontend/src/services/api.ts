@@ -1,6 +1,5 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-// Helper: get auth token from localStorage
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem('token');
   return {
@@ -56,7 +55,7 @@ export const sendMessageToAI = async (
   const res = await fetch(`${API_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ message, imageUrl, history, chat_id }),
+    body: JSON.stringify({ message, image_url: imageUrl, history, chat_id }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Koneksi bermasalah' }));
@@ -109,11 +108,11 @@ export const getCSChatDetail = async (chatId: string) => {
   return res.json();
 };
 
-export const sendCSMessage = async (chatId: string, message: string) => {
+export const sendCSMessage = async (chatId: string, message: string, imageUrl?: string) => {
   const res = await fetch(`${API_BASE_URL}/api/cs/chats/${chatId}/message`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, image_url: imageUrl }),
   });
   if (!res.ok) throw new Error('Gagal mengirim pesan');
   return res.json();
@@ -139,11 +138,12 @@ export const getCSUsers = async () => {
   return res.json();
 };
 
-export const createCSUser = async (email: string, password: string, full_name: string) => {
+// role parameter: 'customer_service' | 'customer' | 'admin'
+export const createCSUser = async (email: string, password: string, full_name: string, role: string = 'customer_service') => {
   const res = await fetch(`${API_BASE_URL}/api/admin/users`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ email, password, full_name, role: 'customer_service' }),
+    body: JSON.stringify({ email, password, full_name, role }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Gagal membuat user' }));
@@ -177,15 +177,30 @@ export const deleteCSUser = async (userId: string) => {
 
 // ── Admin: Monitoring ──────────────────────────────────────────
 
-export const getMonitoringData = async () => {
-  const res = await fetch(`${API_BASE_URL}/api/admin/monitoring`, {
+export const getMonitoringData = async (month?: number, year?: number) => {
+  const params = new URLSearchParams();
+  if (month !== undefined) params.set('month', String(month + 1)); // 0-indexed → 1-indexed
+  if (year !== undefined) params.set('year', String(year));
+  const res = await fetch(`${API_BASE_URL}/api/admin/monitoring?${params}`, {
     headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Gagal mengambil data monitoring');
   return res.json();
 };
 
-// ── Knowledge Base (RAG) ───────────────────────────────────────
+export const getTopIssues = async (month?: number, year?: number): Promise<string[]> => {
+  const params = new URLSearchParams();
+  if (month !== undefined) params.set('month', String(month + 1));
+  if (year !== undefined) params.set('year', String(year));
+  const res = await fetch(`${API_BASE_URL}/api/admin/top-issues?${params}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.issues || [];
+};
+
+// ── Knowledge Base ──────────────────────────────────────────────
 
 export interface KnowledgeItem {
   id: string;
@@ -220,11 +235,17 @@ export const updateKnowledge = async (id: string, item: Omit<KnowledgeItem, 'id'
 };
 
 export const deleteKnowledge = async (id: string): Promise<void> => {
-  const res = await fetch(`${API_BASE_URL}/api/knowledge/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Gagal menghapus data');
+  const res = await fetch(`${API_BASE_URL}/api/knowledge/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Gagal menghapus data' }));
+    throw new Error(err.error || 'Gagal menghapus data');
+  }
 };
 
-// ── Summary (Groq for monthly report) ─────────────────────────
+// ── Summary (Gemini via BE) ─────────────────────────────────────
 
 export const getAISummary = async (history: any[]): Promise<{ message: string }> => {
   const res = await fetch(`${API_BASE_URL}/api/summary`, {
@@ -233,5 +254,29 @@ export const getAISummary = async (history: any[]): Promise<{ message: string }>
     body: JSON.stringify({ history }),
   });
   if (!res.ok) throw new Error('Gagal mendapatkan ringkasan');
+  return res.json();
+};
+
+// ── Chat Title Generator (Gemini via BE) ───────────────────────
+
+export const generateChatTitle = async (firstMessage: string): Promise<string> => {
+  const res = await fetch(`${API_BASE_URL}/api/chat/generate-title`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ message: firstMessage }),
+  });
+  if (!res.ok) return firstMessage.substring(0, 50);
+  const data = await res.json();
+  return data.title || firstMessage.substring(0, 50);
+};
+
+// ── CS Summary (after chat solved) ─────────────────────────────
+
+export const generateCSSummary = async (chatId: string): Promise<{ summary: string }> => {
+  const res = await fetch(`${API_BASE_URL}/api/cs/chats/${chatId}/summary`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) return { summary: '' };
   return res.json();
 };

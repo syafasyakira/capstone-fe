@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ChatProvider } from '@/contexts/ChatContext';
@@ -14,53 +14,52 @@ import KnowledgeBasePage from '@/components/admin/KnowledgeBasePage';
 function AppRoutes() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [authView, setAuthView] = useState<'login' | 'register'>('login');
 
   if (!user) {
-    return authView === 'login' ? (
-      <LoginPage onSwitchToRegister={() => setAuthView('register')} />
-    ) : (
-      <RegisterPage onSwitchToLogin={() => setAuthView('login')} />
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
     );
   }
 
   const isAdmin = user.role === 'admin';
-  const isCS = user.role === 'cs';
-  const isUser = user.role === 'user';
+  const isCS = user.role === 'customer_service';
+  const isCustomer = user.role === 'customer';
 
   return (
     <Routes>
-      {/* User routes */}
-      {isUser && (
+      {isCustomer && (
         <>
           <Route path="/" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
           <Route path="/chat" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="/chat/:sessionId" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
           <Route path="/history" element={<HistoryPage onNavigate={p => navigate(`/${p}`)} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </>
       )}
 
-      {/* Admin routes */}
+      {/* Admin: NO chatbot route */}
       {isAdmin && (
         <>
           <Route path="/" element={<Navigate to="/monitoring" replace />} />
           <Route path="/monitoring" element={<MonitoringPage onNavigate={p => navigate(`/${p}`)} />} />
-          <Route path="/chatbot" element={<ChatPage onNavigate={p => navigate(`/${p}`)} />} />
-          <Route path="/monthly-report" element={<MonitoringPage onNavigate={p => navigate(`/${p}`)} />} />
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
           <Route path="/manage-users" element={<ManageUsersPage />} />
+          <Route path="*" element={<Navigate to="/monitoring" replace />} />
         </>
       )}
 
-      {/* CS routes */}
+      {/* CS: NO chatbot route */}
       {isCS && (
         <>
           <Route path="/" element={<Navigate to="/cs-dashboard" replace />} />
           <Route path="/cs-dashboard" element={<CSPage />} />
+          <Route path="*" element={<Navigate to="/cs-dashboard" replace />} />
         </>
       )}
-
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

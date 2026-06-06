@@ -1,228 +1,192 @@
-// Chat routes: Main chat interface with RAG and escalation
+// be/src/routes/chat.ts
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase.js';
 import { callRAGModel, processRAGResponse } from '../config/ai.js';
-import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { ChatRequest, Chat, Message } from '../models/types.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { ChatRequest, Message } from '../models/types.js';
+import axios from 'axios';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const router = Router();
-
-// Middleware
 router.use(authenticateToken);
 
-/**
- * POST /chat
- * Send message to chat (creates new chat if needed)
- * Body: { message, image_url?, chat_id? }
- */
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || 'gemini-3-flash-preview';
+
+// ── Utility: Generate AI chat title ──────────────────────────
+async function generateAIChatTitle(firstMessage: string): Promise<string> {
+  if (!GEMINI_API_KEY) return firstMessage.substring(0, 50) + (firstMessage.length > 50 ? '...' : '');
+
+  try {
+    const prompt = `Buat judul singkat (maks 8 kata, tanpa tanda kutip, tanpa titik di akhir) yang menggambarkan topik dari pesan berikut: "${firstMessage.substring(0, 200)}"`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const res = await axios.post(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: 30 },
+    }, { timeout: 10000 });
+
+    const title = res.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    return title || firstMessage.substring(0, 50);
+  } catch {
+    return firstMessage.substring(0, 50) + (firstMessage.length > 50 ? '...' : '');
+  }
+}
+
+// ── POST /chat ────────────────────────────────────────────────
 router.post('/', async (req: Request<{}, {}, ChatRequest>, res: Response): Promise<void> => {
   try {
     const userId = req.user!.sub;
     const { message, image_url, chat_id } = req.body;
 
     if (!message || message.trim().length === 0) {
-      res.status(400).json({ error: 'Pesan tidak boleh kosong.' });
-      return;
+      res.status(400).json({ error: 'Pesan tidak boleh kosong.' }); return;
     }
 
     console.log(`💬 New message from user ${userId}: ${message.substring(0, 50)}...`);
 
     let currentChatId: string;
+    let existingChatStatus = 'ai';
+    let csName: string | null = null;
 
-    // 1. Get or create chat
     if (chat_id) {
-      // Verify chat ownership
       const { data: chat, error: chatError } = await supabaseAdmin
-        .from('chats')
-        .select('*')
-        .eq('id', chat_id)
-        .eq('customer_id', userId)
-        .single();
+        .from('chats').select('*, cs:cs_id(full_name)').eq('id', chat_id).eq('customer_id', userId).single();
 
-      if (chatError || !chat) {
-        res.status(404).json({ error: 'Chat tidak ditemukan.' });
-        return;
-      }
+      if (chatError || !chat) { res.status(404).json({ error: 'Chat tidak ditemukan.' }); return; }
 
       currentChatId = chat_id;
+      existingChatStatus = chat.status || 'ai';
+      csName = (chat.cs as any)?.full_name || null;
+
+      if (existingChatStatus === 'solved') {
+        res.status(403).json({ error: 'Sesi chat ini sudah ditutup permanen. Silakan buat sesi chat baru.' }); return;
+      }
+
+      if (existingChatStatus === 'with_cs' || existingChatStatus === 'waiting_cs') {
+        await supabaseAdmin.from('messages').insert({
+          chat_id: currentChatId, sender_id: userId, role: 'user',
+          content: message, image_url: image_url || null,
+        });
+        res.json({ chat_id: currentChatId, message: '', status: existingChatStatus, cs_name: csName, needs_escalation: false, tokens_used: 0 });
+        return;
+      }
     } else {
-      // Create new chat
+      // Fix 6: Judul dari AI, bukan teks mentah
+      const aiTitle = await generateAIChatTitle(message);
+
       const { data: newChat, error: createError } = await supabaseAdmin
-        .from('chats')
-        .insert({
+        .from('chats').insert({
           customer_id: userId,
-          title: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
+          title: aiTitle,
           preview: message.substring(0, 100),
-          status: 'ai', // Will change to 'waiting_cs' if escalated
-        })
-        .select()
-        .single();
+          status: 'ai',
+        }).select().single();
 
       if (createError || !newChat) {
         console.error('❌ Chat Creation Error:', createError?.message);
-        res.status(500).json({ error: 'Gagal membuat chat baru.' });
-        return;
+        res.status(500).json({ error: 'Gagal membuat chat baru.' }); return;
       }
 
       currentChatId = newChat.id;
-      console.log(`✅ New chat created: ${currentChatId}`);
+      console.log(`✅ New chat created: ${currentChatId} with title: "${aiTitle}"`);
     }
 
-    // 2. Get chat history for RAG context
-    const { data: messageHistory, error: historyError } = await supabaseAdmin
-      .from('messages')
-      .select('*')
-      .eq('chat_id', currentChatId)
-      .order('created_at', { ascending: true });
+    // Simpan pesan user
+    await supabaseAdmin.from('messages').insert({
+      chat_id: currentChatId, sender_id: userId, role: 'user',
+      content: message, image_url: image_url || null,
+    });
 
-    if (historyError) {
-      console.error('❌ History Fetch Error:', historyError.message);
-    }
+    // Ambil history
+    const { data: messageHistory } = await supabaseAdmin
+      .from('messages').select('*').eq('chat_id', currentChatId).order('created_at', { ascending: true });
 
-    // Format history for RAG
     const formattedHistory = (messageHistory || []).map((msg: Message) => ({
       role: msg.role === 'assistant' ? 'assistant' : 'user',
       content: msg.content,
     }));
 
-    // 3. Save user message to DB
-    const { error: userMsgError } = await supabaseAdmin.from('messages').insert({
-      chat_id: currentChatId,
-      sender_id: userId,
-      role: 'user',
-      content: message,
-      image_url: image_url || null,
-    });
-
-    if (userMsgError) {
-      console.error('❌ User Message Save Error:', userMsgError.message);
-    }
-
-    // 4. Call RAG model
+    // Panggil RAG
     console.log(`📡 Calling RAG model...`);
     const ragResponse = await callRAGModel(userId, message, formattedHistory);
     const processed = processRAGResponse(ragResponse);
 
-    // 5. Handle escalation
     let chatStatus = 'ai';
-    if (processed.needs_escalation) {
-      chatStatus = 'waiting_cs';
-      console.log('⚠️  Message requires escalation to CS');
-    }
+    if (processed.needs_escalation) { chatStatus = 'waiting_cs'; }
 
-    // 6. Save AI/Assistant response to DB
-    const { error: assistantMsgError } = await supabaseAdmin.from('messages').insert({
-      chat_id: currentChatId,
-      sender_id: userId,
-      role: processed.needs_escalation ? 'assistant' : 'assistant',
-      content: processed.message,
+    // Simpan response bot
+    await supabaseAdmin.from('messages').insert({
+      chat_id: currentChatId, sender_id: null, role: 'assistant', content: processed.message,
     });
 
-    if (assistantMsgError) {
-      console.error('❌ Assistant Message Save Error:', assistantMsgError.message);
-    }
+    // Update chat preview
+    await supabaseAdmin.from('chats').update({
+      status: chatStatus,
+      preview: processed.message.substring(0, 100),
+    }).eq('id', currentChatId);
 
-    // 7. Update chat status if escalated
-    if (processed.needs_escalation) {
-      const { error: statusError } = await supabaseAdmin
-        .from('chats')
-        .update({
-          status: chatStatus,
-          preview: processed.message.substring(0, 100),
-        })
-        .eq('id', currentChatId);
-
-      if (statusError) {
-        console.error('❌ Chat Status Update Error:', statusError.message);
-      }
-    }
-
-    console.log(`✅ Response sent. Status: ${chatStatus}`);
-
-    // 8. Send response to client
     res.json({
       chat_id: currentChatId,
       message: processed.message,
       status: chatStatus,
+      cs_name: csName,
       needs_escalation: processed.needs_escalation,
       tokens_used: processed.tokens_used,
     });
-  } catch (error: any) {
-    console.error('❌ Chat Error:', error.message);
+  } catch (e: any) {
+    console.error('❌ Chat Error:', e.message);
     res.status(500).json({ error: 'Terjadi kesalahan saat memproses chat.' });
   }
 });
 
-/**
- * GET /chat/:chatId
- * Get chat history with messages
- */
-router.get('/:chatId', async (req: Request<{ chatId: string }, {}, {}>, res: Response): Promise<void> => {
+// ── POST /chat/generate-title ─────────────────────────────────
+router.post('/generate-title', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { message } = req.body;
+    if (!message) { res.status(400).json({ error: 'Message diperlukan.' }); return; }
+    const title = await generateAIChatTitle(message);
+    res.json({ title });
+  } catch (e: any) {
+    res.json({ title: (req.body.message || '').substring(0, 50) });
+  }
+});
+
+// ── GET /chat/:chatId ─────────────────────────────────────────
+router.get('/:chatId', async (req: Request<{ chatId: string }>, res: Response): Promise<void> => {
   try {
     const userId = req.user!.sub;
     const { chatId } = req.params;
 
-    // Verify ownership
     const { data: chat, error: chatError } = await supabaseAdmin
-      .from('chats')
-      .select('*')
-      .eq('id', chatId)
-      .eq('customer_id', userId)
-      .single();
+      .from('chats').select('*, cs:cs_id(full_name)').eq('id', chatId).eq('customer_id', userId).single();
 
-    if (chatError || !chat) {
-      res.status(404).json({ error: 'Chat tidak ditemukan.' });
-      return;
-    }
+    if (chatError || !chat) { res.status(404).json({ error: 'Chat tidak ditemukan.' }); return; }
 
-    // Get all messages
     const { data: messages, error: messagesError } = await supabaseAdmin
-      .from('messages')
-      .select('*')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true });
+      .from('messages').select('*').eq('chat_id', chatId).order('created_at', { ascending: true });
 
-    if (messagesError) {
-      console.error('❌ Messages Fetch Error:', messagesError.message);
-      res.status(500).json({ error: 'Gagal mengambil pesan.' });
-      return;
-    }
+    if (messagesError) { res.status(500).json({ error: 'Gagal mengambil pesan.' }); return; }
 
-    res.json({
-      chat,
-      messages: messages || [],
-    });
-  } catch (error: any) {
-    console.error('❌ Get Chat Error:', error.message);
+    res.json({ chat, messages: messages || [] });
+  } catch (e: any) {
     res.status(500).json({ error: 'Terjadi kesalahan.' });
   }
 });
 
-/**
- * GET /chat
- * List all chats for current user
- */
+// ── GET /chat ─────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.sub;
 
     const { data: chats, error } = await supabaseAdmin
-      .from('chats')
-      .select('*')
-      .eq('customer_id', userId)
-      .order('created_at', { ascending: false });
+      .from('chats').select('*').eq('customer_id', userId).order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('❌ Chats Fetch Error:', error.message);
-      res.status(500).json({ error: 'Gagal mengambil daftar chat.' });
-      return;
-    }
+    if (error) { res.status(500).json({ error: 'Gagal mengambil daftar chat.' }); return; }
 
-    res.json({
-      chats: chats || [],
-    });
-  } catch (error: any) {
-    console.error('❌ List Chats Error:', error.message);
+    res.json({ chats: chats || [] });
+  } catch (e: any) {
     res.status(500).json({ error: 'Terjadi kesalahan.' });
   }
 });

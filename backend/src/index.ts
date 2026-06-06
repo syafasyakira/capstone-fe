@@ -8,6 +8,8 @@ import chatRoutes from './routes/chat.js';
 import escalationRoutes from './routes/escalation.js';
 import csRoutes from './routes/cs.js';
 import adminRoutes from './routes/admin.js';
+import knowledgeRoutes from './routes/knowledge.js';
+import summaryRoutes from './routes/summary.js';
 
 // 1. Configuration
 dotenv.config();
@@ -15,9 +17,14 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3001;
 
-// CORS configuration for preflight requests
+// CORS configuration
 const corsOptions = {
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    process.env.FRONTEND_URL || '',
+  ].filter(Boolean),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin'],
   credentials: true,
@@ -58,11 +65,17 @@ app.use('/api/chat', chatRoutes);
 // Escalation endpoints (protected)
 app.use('/api/escalate', escalationRoutes);
 
-// CS endpoints (protected - CS only)
+// CS endpoints (protected - CS and admin only)
 app.use('/api/cs', csRoutes);
 
 // Admin endpoints (protected - admin only)
 app.use('/api/admin', adminRoutes);
+
+// Knowledge base endpoints
+app.use('/api/knowledge', knowledgeRoutes);
+
+// Summary endpoint (AI summary of chat)
+app.use('/api/summary', summaryRoutes);
 
 /**
  * 4. Error handling middleware
@@ -91,7 +104,7 @@ app.listen(port, () => {
   📡 URL        : http://localhost:${port}
   🔐 Auth       : JWT Token Based
   📦 Database   : Supabase
-  🤖 AI Model   : RAG
+  🤖 AI Model   : RAG (Gemini)
   📍 RAG URL    : ${process.env.RAG_API_URL}
   ==============================================
   `);

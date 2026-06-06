@@ -83,9 +83,9 @@ export const callRAGModel = async (
       console.error('   → RAG API Server is not running');
       return {
         status: 'success',
-        reply: '⚠️ Maaf, sistem sedang tidak tersedia. Silakan coba lagi dalam beberapa saat atau hubungi tim customer service kami.',
+        reply: 'Maaf, sistem AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
         tokens_used: 0,
-        needs_escalation: true,
+        needs_escalation: false, // Biarkan user yang memutuskan escalate
       };
     }
 
@@ -93,9 +93,22 @@ export const callRAGModel = async (
       console.error('   → RAG API Timeout or Network Issue');
       return {
         status: 'success',
-        reply: '⚠️ Koneksi ke sistem AI sedang bermasalah. Tim customer service kami siap membantu Anda.',
+        reply: 'Maaf, koneksi ke sistem AI sedang bermasalah. Silakan coba lagi.',
         tokens_used: 0,
-        needs_escalation: true,
+        needs_escalation: false, // Biarkan user yang memutuskan escalate
+      };
+    }
+
+    // HTTP error (misal RAG return 500)
+    if (error.response) {
+      const httpStatus = error.response.status;
+      const ragDetail = error.response.data?.detail || error.response.data?.message || '';
+      console.error(`   → HTTP ${httpStatus} from RAG: ${ragDetail}`);
+      return {
+        status: 'success',
+        reply: 'Maaf, sistem AI sedang mengalami gangguan. Silakan coba lagi dalam beberapa saat.',
+        tokens_used: 0,
+        needs_escalation: false,
       };
     }
 
@@ -103,9 +116,9 @@ export const callRAGModel = async (
     console.error(`   → Error: ${error.message}`);
     return {
       status: 'success',
-      reply: '⚠️ Terjadi kesalahan pada sistem. Silakan hubungi customer service kami untuk bantuan lebih lanjut.',
+      reply: 'Maaf, terjadi kesalahan pada sistem. Silakan coba lagi.',
       tokens_used: 0,
-      needs_escalation: true,
+      needs_escalation: false,
     };
   }
 };
@@ -145,17 +158,11 @@ export const shouldEscalate = (ragResponse: RAGResponse): boolean => {
     'can\'t answer',
     'unable to answer',
 
-    // System error indicators
+    // System error indicators — hanya yg spesifik, hindari false positive
     'sistem sedang tidak tersedia',
-    'error',
-    'gagal',
-    'failed',
-
-    // Generic "beyond scope" phrases
-    'pertanyaan anda',
-    'pertanyaanmu',
-    'tidak termasuk',
-    'bukan dalam',
+    // Catatan: 'error', 'gagal', 'failed', 'pertanyaan anda', 'pertanyaanmu',
+    // 'tidak termasuk', 'bukan dalam' dihapus — terlalu umum, menyebabkan
+    // false positive escalation di jawaban normal RAG
   ];
 
   const isOutOfScope = escalationIndicators.some((indicator) => replyLower.includes(indicator));
@@ -165,9 +172,9 @@ export const shouldEscalate = (ragResponse: RAGResponse): boolean => {
     return true;
   }
 
-  // Check if reply starts with warning emoji or contains system error prefix
-  if (replyLower.startsWith('⚠️') || replyLower.includes('maaf, sistem')) {
-    console.log(`⚠️  [Escalation] System error or warning in reply`);
+  // Cek prefix error sistem yang spesifik
+  if (replyLower.includes('maaf, sistem sedang tidak tersedia')) {
+    console.log(`⚠️  [Escalation] System error in reply`);
     return true;
   }
 

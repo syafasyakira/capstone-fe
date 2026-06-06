@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, CheckCircle, Clock, History, XCircle } from 'lucide-react';
+import { Search, CheckCircle, Clock, History, XCircle, BotMessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useChat } from '@/contexts/ChatContext';
 import { ChatSession } from '@/types';
@@ -43,34 +43,42 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
     return {
-      today: paginated.filter(s => new Date(s.createdAt) >= today),
-      week: paginated.filter(s => new Date(s.createdAt) >= weekAgo && new Date(s.createdAt) < today),
-      older: paginated.filter(s => new Date(s.createdAt) < weekAgo),
+      today: paginated.filter(s => new Date(s.createdAt || '') >= today),
+      week: paginated.filter(s => new Date(s.createdAt || '') >= weekAgo && new Date(s.createdAt || '') < today),
+      older: paginated.filter(s => new Date(s.createdAt || '') < weekAgo),
     };
   }, [paginated]);
 
-  const handleSelect = (session: ChatSession) => {
-    loadSession(session.id);
+  // MASALAH 1 FIX: navigate ke /chat/:sessionId bukan selalu /chat
+  const handleSelect = async (session: ChatSession) => {
+    await loadSession(session.id);
     if (onSelectSession) onSelectSession();
-    navigate('/chat');
+    navigate(`/chat/${session.id}`);
   };
 
-  const formatDate = (d: Date | string) =>
-    new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  const formatDate = (d?: Date | string) => {
+    if (!d) return '';
+    return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
 
   const StatusBadge = ({ session }: { session: ChatSession }) => {
-    if (session.status === 'waiting_cs') return (
-      <span className="flex items-center gap-1 text-xs font-semibold bg-orange-100 text-orange-600 px-3 py-1 rounded-full">
+    if (session.status === 'waiting_cs' || session.status === 'with_cs') return (
+      <span className="flex items-center gap-1 text-xs font-semibold bg-orange-100 text-orange-600 px-3 py-1 rounded-full whitespace-nowrap">
         <Clock size={12} /> Menunggu CS
       </span>
     );
     if (session.status === 'solved') return (
-      <span className="flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-3 py-1 rounded-full">
+      <span className="flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-3 py-1 rounded-full whitespace-nowrap">
         <CheckCircle size={12} /> Terselesaikan
       </span>
     );
+    if (session.status === 'ai') return (
+      <span className="flex items-center gap-1 text-xs font-semibold bg-blue-100 text-blue-600 px-3 py-1 rounded-full whitespace-nowrap">
+        <BotMessageSquare size={12} /> AI
+      </span>
+    );
     return (
-      <span className="flex items-center gap-1 text-xs font-semibold bg-red-100 text-red-600 px-3 py-1 rounded-full">
+      <span className="flex items-center gap-1 text-xs font-semibold bg-red-100 text-red-600 px-3 py-1 rounded-full whitespace-nowrap">
         <XCircle size={12} /> Tidak Terselesaikan
       </span>
     );
@@ -84,9 +92,18 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
   );
 
   const SessionCard = ({ session }: { session: ChatSession }) => {
-    const preview = session.messages?.length > 0
-      ? (session.messages[session.messages.length - 1].content as string).substring(0, 50) + '...'
-      : 'Tidak ada preview';
+    const previewText =
+      session.preview ||
+      (session.messages && session.messages.length > 0
+        ? String(session.messages[session.messages.length - 1].content).substring(0, 80)
+        : null) ||
+      session.title ||
+      'Tidak ada preview';
+
+    const displayPreview = previewText.length > 80
+      ? previewText.substring(0, 80) + '...'
+      : previewText;
+
     return (
       <div
         className="bg-white border border-gray-100 rounded-xl p-4 mb-2 cursor-pointer hover:border-blue-200 hover:shadow-sm transition-all"
@@ -96,7 +113,7 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-gray-800 text-sm truncate">{session.title}</p>
             <p className="text-xs text-gray-400 mt-0.5">{formatDate(session.createdAt)}</p>
-            <p className="text-sm text-gray-500 mt-2 truncate">"{preview}"</p>
+            <p className="text-sm text-gray-500 mt-2 truncate">"{displayPreview}"</p>
           </div>
           <StatusBadge session={session} />
         </div>

@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-interface LoginPageProps {
-  onSwitchToRegister: () => void;
-}
-
-export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
+export default function LoginPage() {
   const { login, isLoading } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -17,7 +15,10 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
     setError('');
     if (!email || !password) { setError('Semua field harus diisi'); return; }
     const ok = await login(email, password);
-    if (!ok) setError('Email atau kata sandi salah');
+    if (!ok) {
+      setError('Email atau kata sandi salah');
+    }
+    // Redirect ditangani otomatis oleh App.tsx karena user state berubah
   };
 
   return (
@@ -36,12 +37,6 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
           <p className="text-gray-600 text-sm leading-relaxed">
             <strong>Perlu bantuan?</strong> Cobalah AI Support kami untuk membantu anda terkait produk Epson.
           </p>
-          <div className="mt-8 bg-blue-50 border border-blue-100 rounded-2xl p-4 text-xs text-blue-700">
-            <p className="font-semibold mb-2">Demo accounts:</p>
-            <p>👤 User: <code>user@epson.com</code> / <code>user123</code></p>
-            <p>🎧 CS: <code>cs@epson.com</code> / <code>cs123</code></p>
-            <p>⚙️ Admin: <code>admin@epson.com</code> / <code>admin123</code></p>
-          </div>
         </div>
       </div>
 
@@ -93,7 +88,7 @@ export default function LoginPage({ onSwitchToRegister }: LoginPageProps) {
 
             <p className="text-center text-white/60 text-xs mt-5">
               Belum punya akun?{' '}
-              <button onClick={onSwitchToRegister} className="text-white font-semibold underline hover:no-underline">klik disini</button>
+              <button onClick={() => navigate('/register')} className="text-white font-semibold underline hover:no-underline">klik disini</button>
             </p>
           </div>
         </div>

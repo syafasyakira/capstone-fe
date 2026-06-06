@@ -1,19 +1,22 @@
 // types/index.ts
-export type UserRole = 'user' | 'admin' | 'cs';
+export type UserRole = 'customer' | 'customer_service' | 'admin';
 
 export interface User {
   id: string;
-  name: string;
+  name?: string;
+  full_name?: string;
   email: string;
   role: UserRole;
 }
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'bot' | 'cs';
+  role: 'user' | 'bot' | 'cs' | 'assistant';
   content: string;
-  timestamp: Date;
+  timestamp?: Date;
+  createdAt?: string;
   imageUrl?: string;
+  image_url?: string;
   isSummary?: boolean;
   summaryContent?: string;
 }
@@ -21,15 +24,17 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string;
   title: string;
-  preview: string;
-  timestamp: Date;
-  status: 'solved' | 'unsolved' | 'pending';
-  messages: ChatMessage[];
+  preview?: string;
+  timestamp?: Date;
+  createdAt?: string;
+  updatedAt?: string;
+  status: 'ai' | 'waiting_cs' | 'with_cs' | 'solved' | 'unsolved' | 'pending';
+  messages?: ChatMessage[];
   escalatedToCS?: boolean;
   csActive?: boolean;
   csSolvedBy?: 'user' | 'cs' | null;
   csHandlerName?: string | null;
-  assignedToCSId?: string | null; // ID CS yang claim sesi ini
+  assignedToCSId?: string | null;
   userId?: string;
   userName?: string;
 }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { BotMessageSquare, History, BarChart3, LogOut, Menu, X, Headphones, Users, BookOpen } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useChat } from '@/contexts/ChatContext'; // FIX: Import useChat dari context yang sudah diperbarui
 import { cn } from '@/utils/cn';
 
 export type ActivePage = 'chat' | 'history' | 'monitoring' | 'cs-dashboard' | 'manage-users' | 'knowledge-base' | 'chatbot' | 'monthly-report';
@@ -12,6 +13,7 @@ interface SidebarNavProps {
 
 export function SidebarNav({ bottomContent }: SidebarNavProps) {
   const { user, logout } = useAuth();
+  const { resetChatSession } = useChat(); // FIX: Destructure fungsi reset dari ChatContext
   const navigate = useNavigate();
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
@@ -23,8 +25,22 @@ export function SidebarNav({ bottomContent }: SidebarNavProps) {
     setIsOpen(false);
   };
 
+  // FIX: Handler khusus untuk mengarahkan ke Chatbot baru dengan mereset session aktif
+  const handleGoToNewChat = (page: ActivePage) => {
+    resetChatSession(); // Mengosongkan currentChatId dan currentSessionId
+    navigate(`/${page}`, { replace: true });
+    setIsOpen(false);
+  };
+
+  // Match roles dengan BE: customer | customer_service | admin
   const isAdmin = user?.role === 'admin';
-  const isCS = user?.role === 'cs';
+  const isCS = user?.role === 'customer_service';
+  const isCustomer = user?.role === 'customer';
+
+  // Display name: full_name atau name
+  const displayName = (user as any)?.full_name || user?.name || user?.email || '';
+
+  const roleLabel = isAdmin ? 'Administrator' : isCS ? 'Customer Service' : 'User';
 
   return (
     <>
@@ -56,10 +72,11 @@ export function SidebarNav({ bottomContent }: SidebarNavProps) {
           <p className="text-white/50 text-xs mt-1">AI Helpdesk Assistant</p>
         </div>
 
-        {/* Nav — user */}
-        {!isAdmin && !isCS && (
+        {/* Nav — customer */}
+        {isCustomer && (
           <nav className="px-4 flex flex-col gap-1 shrink-0">
-            <NavBtn icon={<BotMessageSquare size={18} />} label="Chatbot" active={activePage === 'chat' || activePage === ''} onClick={() => handleNavigate('chat')} />
+            {/* FIX: Menggunakan handleGoToNewChat untuk mereset room state */}
+            <NavBtn icon={<BotMessageSquare size={18} />} label="Chatbot" active={activePage === 'chat' || activePage === ''} onClick={() => handleGoToNewChat('chat')} />
             <NavBtn icon={<History size={18} />} label="History" active={activePage === 'history'} onClick={() => handleNavigate('history')} />
           </nav>
         )}
@@ -67,14 +84,14 @@ export function SidebarNav({ bottomContent }: SidebarNavProps) {
         {/* Nav — admin */}
         {isAdmin && (
           <nav className="px-4 flex flex-col gap-1 shrink-0">
-            <NavBtn icon={<BotMessageSquare size={18} />} label="Chatbot" active={activePage === 'chatbot'} onClick={() => handleNavigate('chatbot')} />
+            {/* FIX: Menggunakan handleGoToNewChat untuk mereset room state */}
             <NavBtn icon={<BarChart3 size={18} />} label="Monitoring" active={activePage === 'monitoring'} onClick={() => handleNavigate('monitoring')} />
             <NavBtn icon={<BookOpen size={18} />} label="Knowledge Base" active={activePage === 'knowledge-base'} onClick={() => handleNavigate('knowledge-base')} />
-            <NavBtn icon={<Users size={18} />} label="Kelola Akun CS" active={activePage === 'manage-users'} onClick={() => handleNavigate('manage-users')} />
+            <NavBtn icon={<Users size={18} />} label="Kelola Akun" active={activePage === 'manage-users'} onClick={() => handleNavigate('manage-users')} />
           </nav>
         )}
 
-        {/* Nav — cs */}
+        {/* Nav — customer_service */}
         {isCS && (
           <nav className="px-4 flex flex-col gap-1 shrink-0">
             <NavBtn icon={<Headphones size={18} />} label="CS Dashboard" active={activePage === 'cs-dashboard'} onClick={() => handleNavigate('cs-dashboard')} />
@@ -91,10 +108,10 @@ export function SidebarNav({ bottomContent }: SidebarNavProps) {
         <div className="px-4 pb-6 mt-auto shrink-0">
           {user && (
             <div className="px-4 py-3 mb-2 bg-white/10 rounded-xl">
-              <p className="text-white text-sm font-semibold truncate">{user.name}</p>
+              <p className="text-white text-sm font-semibold truncate">{displayName}</p>
               <p className="text-white/50 text-xs truncate">{user.email}</p>
               <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 mt-1 block">
-                {user.role === 'admin' ? 'Administrator' : user.role === 'cs' ? 'Customer Service' : 'User'}
+                {roleLabel}
               </span>
             </div>
           )}

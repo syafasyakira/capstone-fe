@@ -19,7 +19,6 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
-    // Try to restore session from localStorage
     const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
     if (token && savedUser) {
@@ -76,7 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshCSUsers = async () => {
     try {
       const data = await getCSUsers();
-      // Filter only customer_service role
       const csList = (data.users || []).filter((u: any) => u.role === 'customer_service');
       setCsUsers(csList);
     } catch (err) {

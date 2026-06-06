@@ -1,6 +1,5 @@
 // Authentication routes: Register, Login
 import { Router, Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
 import { supabaseAdmin, supabaseClient } from '../config/supabase.js';
 import { generateToken } from '../middleware/auth.js';
 import { AuthRequest } from '../models/types.js';
