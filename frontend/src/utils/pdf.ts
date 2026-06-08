@@ -82,7 +82,7 @@ export async function downloadChatSummaryPDF(
     const isBot = msg.role === 'bot';
     const isCS = msg.role === 'cs';
     const label = isBot ? 'EPSON AI' : isCS ? `CS ${metadata?.csName || ''}` : 'Pelanggan';
-    const time = new Date(msg.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const time = new Date(msg.timestamp ?? new Date()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
