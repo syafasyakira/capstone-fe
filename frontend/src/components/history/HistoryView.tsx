@@ -49,9 +49,8 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
     };
   }, [paginated]);
 
-  // MASALAH 1 FIX: navigate ke /chat/:sessionId bukan selalu /chat
-  const handleSelect = async (session: ChatSession) => {
-    await loadSession(session.id);
+  const handleSelect = (session: ChatSession) => {
+    loadSession(session.id);
     if (onSelectSession) onSelectSession();
     navigate(`/chat/${session.id}`);
   };
@@ -62,9 +61,14 @@ export default function HistoryView({ onSelectSession }: HistoryViewProps) {
   };
 
   const StatusBadge = ({ session }: { session: ChatSession }) => {
-    if (session.status === 'waiting_cs' || session.status === 'with_cs') return (
+    if (session.status === 'waiting_cs') return (
       <span className="flex items-center gap-1 text-xs font-semibold bg-orange-100 text-orange-600 px-3 py-1 rounded-full whitespace-nowrap">
         <Clock size={12} /> Menunggu CS
+      </span>
+    );
+    if (session.status === 'with_cs') return (
+      <span className="flex items-center gap-1 text-xs font-semibold bg-green-100 text-green-700 px-3 py-1 rounded-full whitespace-nowrap">
+        <CheckCircle size={12} /> Dilayani CS
       </span>
     );
     if (session.status === 'solved') return (

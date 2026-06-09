@@ -47,8 +47,16 @@ router.post('/users', async (req: Request, res: Response): Promise<void> => {
     if (authError) { res.status(400).json({ error: `Gagal membuat pengguna: ${authError.message}` }); return; }
 
     const userId = authData.user.id;
+
+    // Insert profile
     const { error: profileError } = await supabaseAdmin.from('profiles').insert({ id: userId, email, full_name, role });
     if (profileError && !profileError.message.includes('duplicate')) { res.status(500).json({ error: 'Gagal membuat profil.' }); return; }
+
+    // Force update role to ensure correct value (workaround for Supabase default)
+    await supabaseAdmin.from('profiles').update({ role }).eq('id', userId);
+
+    // Also update user_metadata in auth
+    await supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: { full_name, role } });
 
     res.status(201).json({ message: 'Pengguna berhasil dibuat.', user: { id: userId, email, full_name, role } });
   } catch (e: any) { res.status(500).json({ error: 'Terjadi kesalahan pada server.' }); }

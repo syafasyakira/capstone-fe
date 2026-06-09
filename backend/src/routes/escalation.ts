@@ -44,7 +44,7 @@ router.post('/', async (req: Request<{}, {}, EscalationRequest>, res: Response):
       .from('chats')
       .update({
         status: 'waiting_cs',
-        preview: reason || 'Chat dialihkan ke customer service',
+        preview: reason || 'Percakapan dialihkan ke CS',
       })
       .eq('id', chat_id);
 
@@ -56,8 +56,8 @@ router.post('/', async (req: Request<{}, {}, EscalationRequest>, res: Response):
 
     // Save escalation message
     const escalationMsg = reason
-      ? `Chat dialihkan ke customer service. Alasan: ${reason}`
-      : 'Chat dialihkan ke customer service.';
+      ? `Percakapan anda sedang diteruskan ke Customer Service kami, mohon tunggu untuk beberapa saat... Alasan: ${reason}`
+      : 'Percakapan anda sedang diteruskan ke Customer Service kami, mohon tunggu untuk beberapa saat...';
 
     await supabaseAdmin.from('messages').insert({
       chat_id,

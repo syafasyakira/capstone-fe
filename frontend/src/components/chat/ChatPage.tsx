@@ -83,8 +83,20 @@ export default function ChatPage({ onNavigate }: ChatPageProps) {
       return;
     }
     if (loadedSessionIdRef.current === urlSessionId) return;
+
+    // Check if session already has messages in context — show immediately without waiting for API
+    const existingSession = sessions.find(s => s.id === urlSessionId);
+    if (existingSession && existingSession.messages && existingSession.messages.length > 0) {
+      setMessages(existingSession.messages.map((m: ChatMessage) => ({ ...m })));
+      setCurrentSession(existingSession);
+      loadedSessionIdRef.current = urlSessionId;
+      checkAndShowSummaryPrompt(existingSession.messages.map((m: ChatMessage) => ({ ...m })));
+      return;
+    }
+
+    // Load session data (async) — messages will be set via the sessions effect below
     loadSession(urlSessionId);
-  }, [urlSessionId]);
+  }, [urlSessionId, sessions]);
 
   // FIX 2: Bersihkan layar jika currentSessionId diset null oleh resetChatSession() di sidebar
   useEffect(() => {

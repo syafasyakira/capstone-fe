@@ -82,9 +82,17 @@ export default function ManageUsersPage() {
     if (modalMode === 'add') {
       if (!password || password.length < 6) { setError('Password minimal 6 karakter'); setLoading(false); return; }
       try {
+        console.log('[DEBUG] Creating user - email:', email, 'name:', name, 'role:', modalRole);
         await createCSUser(email, password, name, modalRole);
         await fetchUsers();
         setSuccess(`Akun "${name}" berhasil ditambahkan`);
+        setTimeout(() => {
+          setShowModal(false);
+          setSuccess('');
+          setName(''); setEmail(''); setPassword('');
+        }, 1200);
+        setLoading(false);
+        return;
       } catch (e: any) {
         setError(e.message || 'Gagal membuat akun');
         setLoading(false); return;
@@ -95,14 +103,18 @@ export default function ManageUsersPage() {
         await updateCSUserAPI(editId, name, email, password || undefined);
         await fetchUsers();
         setSuccess(`Akun "${name}" berhasil diperbarui`);
+        setTimeout(() => {
+          setShowModal(false);
+          setSuccess('');
+          setName(''); setEmail(''); setPassword('');
+        }, 1200);
+        setLoading(false);
+        return;
       } catch (e: any) {
         setError(e.message || 'Gagal memperbarui akun');
         setLoading(false); return;
       }
     }
-
-    setLoading(false);
-    setTimeout(() => { setShowModal(false); setSuccess(''); setName(''); setEmail(''); setPassword(''); }, 1500);
   };
 
   const handleRemove = async (id: string, displayName: string) => {
@@ -230,18 +242,15 @@ export default function ManageUsersPage() {
                 {/* Role selector — hanya tampil saat add */}
                 {modalMode === 'add' && (
                   <div>
-                    <label className="text-xs font-semibold text-gray-600 mb-2 block">Tipe Akun</label>
-                    <div className="flex gap-2">
-                      {(['customer_service', 'customer'] as const).map(r => (
-                        <button key={r} onClick={() => setModalRole(r)}
-                          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border transition-all ${modalRole === r ? 'text-white border-transparent' : 'bg-gray-50 text-gray-500 border-gray-200'}`}
-                          style={modalRole === r ? { backgroundColor: 'var(--epson-blue-mid)' } : {}}
-                        >
-                          {r === 'customer_service' ? <ShieldCheck size={15} /> : <User size={15} />}
-                          {r === 'customer_service' ? 'Customer Service' : 'Customer'}
-                        </button>
-                      ))}
-                    </div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Tipe Akun</label>
+                    <select
+                      value={modalRole}
+                      onChange={e => setModalRole(e.target.value as 'customer' | 'customer_service')}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all bg-white"
+                    >
+                      <option value="customer_service">Customer Service</option>
+                      <option value="customer">Customer</option>
+                    </select>
                   </div>
                 )}
 

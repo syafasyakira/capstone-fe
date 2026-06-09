@@ -8,7 +8,7 @@ import { ChatSession, ChatMessage } from '@/types';
 import { cn } from '@/utils/cn';
 import { getCSChatDetail, generateCSSummary } from '@/services/api';
 
-type FilterStatus = 'all' | 'waiting' | 'solved' | 'unsolved';
+type FilterStatus = 'all' | 'waiting' | 'handled' | 'solved' | 'unsolved';
 
 export default function CSDashboard() {
   const { sessions, csClaimSession, csReplyToSession, csMarkSession, loadCSEscalatedSessions } = useChat();
@@ -91,7 +91,9 @@ export default function CSDashboard() {
     const currentStatus = filterStatus as string;
     
     if (currentStatus === 'waiting') {
-      list = list.filter(s => s.status === 'waiting_cs' || s.status === 'with_cs');
+      list = list.filter(s => s.status === 'waiting_cs');
+    } else if (currentStatus === 'handled') {
+      list = list.filter(s => s.status === 'with_cs');
     } else if (currentStatus === 'solved') {
       list = list.filter(s => s.status === 'solved' || (s.status as string) === 'resolved');
     } else if (currentStatus === 'unsolved') {
@@ -419,6 +421,7 @@ export default function CSDashboard() {
   // ─── List View ─────────────────────────────────────────────
   const FILTERS: { key: FilterStatus; label: string }[] = [
     { key: 'all', label: 'Semua' },
+    { key: 'handled', label: 'Ditangani' },
     { key: 'waiting', label: 'Menunggu' },
     { key: 'solved', label: 'Selesai' },
     { key: 'unsolved', label: 'Tidak Selesai' },
@@ -445,7 +448,8 @@ export default function CSDashboard() {
       <div className="flex gap-1.5 flex-wrap mb-3 max-w-2xl">
         {FILTERS.map(f => {
           const count = f.key === 'all' ? escalatedSessions.length
-            : f.key === 'waiting' ? escalatedSessions.filter(s => s.status === 'waiting_cs' || s.status === 'with_cs').length
+            : f.key === 'waiting' ? escalatedSessions.filter(s => s.status === 'waiting_cs').length
+            : f.key === 'handled' ? escalatedSessions.filter(s => s.status === 'with_cs').length
             : f.key === 'solved' ? escalatedSessions.filter(s => s.status === 'solved' || (s.status as string) === 'resolved').length
             : escalatedSessions.filter(s => s.status === 'unsolved').length;
           return (

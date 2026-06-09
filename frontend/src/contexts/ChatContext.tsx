@@ -61,16 +61,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     try {
       const data = await getUserChats();
       const chats = data.chats || data || [];
-      const sessionsFromChats: ChatSession[] = chats.map((chat: any) => ({
-        id: chat.id,
-        title: chat.title || `Chat ${chat.id.substring(0, 8)}`,
-        preview: chat.preview,
-        createdAt: chat.created_at,
-        updatedAt: chat.updated_at,
-        status: chat.status as ChatSession['status'], // FIX: Type safety cast
-        messages: [],
-      }));
-      setSessions(sessionsFromChats);
+      setSessions((prevSessions) => {
+        const prevMap = new Map(prevSessions.map((s) => [s.id, s]));
+        const mapped = chats.map((chat: any) => {
+          const existing = prevMap.get(chat.id);
+          return {
+            id: chat.id,
+            title: chat.title || `Chat ${chat.id.substring(0, 8)}`,
+            preview: chat.preview,
+            createdAt: chat.created_at,
+            updatedAt: chat.updated_at,
+            status: chat.status as ChatSession['status'],
+            messages: existing?.messages?.length ? existing.messages : [],
+          };
+        });
+        // Sort by updatedAt descending (most recent first)
+        return mapped.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+      });
     } catch (err: any) {
       setError(err.message || "Failed to load sessions");
     } finally {
@@ -192,8 +199,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       } else if (currentChatId) {
         setSessions((prev) =>
           prev.map((s) =>
-            s.id === currentChatId 
-              ? { ...s, status: (result.status || s.status) as ChatSession['status'] } 
+            s.id === currentChatId
+              ? {
+                  ...s,
+                  status: (result.status || s.status) as ChatSession['status'],
+                  preview: message.substring(0, 100),
+                  updatedAt: new Date().toISOString(),
+                }
               : s
           )
         );
@@ -234,9 +246,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             ? {
                 ...s,
                 messages: messagesFromChat,
-                status: (chat?.status || 'with_cs') as ChatSession['status'],
+                status: 'with_cs' as ChatSession['status'],
                 assignedToCSId: chat?.cs_id || s.assignedToCSId,
                 userName: chat?.profiles?.full_name || s.userName || 'User',
+                csHandlerName: chat?.cs?.full_name || chat?.cs_name || s.csHandlerName || null,
               }
             : s
         )
@@ -266,7 +279,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       }));
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === sessionId ? { ...s, messages: messagesFromChat } : s
+          s.id === sessionId
+            ? {
+                ...s,
+                messages: messagesFromChat,
+                preview: message.substring(0, 100),
+                updatedAt: new Date().toISOString(),
+              }
+            : s
         )
       );
     } catch (err: any) {
