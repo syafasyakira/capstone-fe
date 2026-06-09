@@ -51,7 +51,7 @@ AI Helpdesk Assistant adalah aplikasi chat helpdesk berbasis AI yang dirancang u
 
 ## Prasyarat
 
-Sebelum menjalankan proyek, pastikan你已经 memiliki:
+Sebelum menjalankan proyek, pastikan memiliki:
 
 - **Node.js** v18 atau lebih baru
 - **Python** v3.10 atau lebih baru
@@ -66,7 +66,7 @@ Sebelum menjalankan proyek, pastikan你已经 memiliki:
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/<username>/<repo-name>.git
+git clone https://github.com/syafasyakira/capstone-fe.git
 cd capstone-fe
 ```
 
@@ -170,7 +170,7 @@ Backend API akan berjalan di `http://localhost:3001`
 ### 6. Install & Run RAG Service (AI)
 
 ```bash
-cd rag-service
+cd epson-ai-chatbot
 pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --port 8000
 ```
@@ -199,7 +199,7 @@ capstone-fe/
 │   │   ├── routes/       # API routes (admin, auth, chat, cs, etc.)
 │   │   └── utils/        # Utility functions
 │   └── .env              # Backend environment variables
-└── rag-service/          # Python RAG service for AI chatbot
+└── epson-ai-chatbot/     # Python AI chatbot (ingestion & standalone bot)
     ├── app/
     │   ├── api/          # API endpoints
     │   ├── core/         # Core configuration
