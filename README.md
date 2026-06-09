@@ -213,20 +213,16 @@ capstone-fe/
 ## Fitur Utama
 
 ### Untuk Customer
-- Chat dengan AI chatbot untuk pertanyaan umum
-- Eskalasi manual ke CS via tombol "Belum terselesaikan?" jika pertanyaan tidak bisa dijawab AI
-- Setelah diklik, customer melihat notifikasi "Percakapan anda sedang diteruskan ke Customer Service kami, mohon tunggu untuk beberapa saat..." dan input chat dinonaktifkan
-- Riwayat chat
+- Memulai chat dengan AI chatbot
+- Eskalasi otomatis ke CS jika pertanyaan tidak bisa dijawab
+- Melihat riwayat chat
 
 ### Untuk Customer Service
-- Dashboard untuk melihat chat yang masuk (menunggu / sedang ditangani / selesai)
-- CS mengklik "Ambil" untuk menerima sesi chat — status otomatis berubah dari `waiting_cs` ke `with_cs`
-- CS dan customer dapat langsung berkirim pesan setelah terhubung
-- CS dapat menandai chat selesai ("Selesai") atau tidak ("Tidak Selesai")
-- Setelah chat selesai, AI akan membuatkan ringkasan penanganan
+- Dashboard untuk melihat chat customer yang masuk
+- Membalas chat customer
+- Menandai chat selesai ("Selesai") atau tidak ("Tidak Selesai")
 
 ### Untuk Admin
-- Kelola akun pengguna (tambah, edit, hapus)
-- Default role akun baru via "Tambah Akun" adalah **Customer Service**
+- Mengelola akun pengguna (tambah, edit, hapus)
 - Monitoring statistik chat (total, solved, pending)
 - Analisis top issues
