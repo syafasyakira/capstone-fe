@@ -226,3 +226,4 @@ capstone-fe/
 - Mengelola akun pengguna (tambah, edit, hapus)
 - Monitoring statistik chat (total, solved, pending)
 - Analisis top issues
+- Menambah data di Knowledge Base
