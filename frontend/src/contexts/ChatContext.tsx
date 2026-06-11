@@ -76,7 +76,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           };
         });
         // Sort by updatedAt descending (most recent first)
-        return mapped.sort((a: ChatSession, b: ChatSession) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+        return mapped.sort((a: ChatSession, b: ChatSession) => new Date(b.updatedAt ?? b.createdAt ?? '').getTime() - new Date(a.updatedAt ?? a.createdAt ?? '').getTime());
       });
     } catch (err: any) {
       setError(err.message || "Failed to load sessions");
