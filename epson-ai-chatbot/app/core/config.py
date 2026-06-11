@@ -6,9 +6,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     GEMINI_MODEL_ID: str = "gemini-3-flash-preview"
     
+    SUPABASE_URL: str
+    SUPABASE_SERVICE_ROLE_KEY: str
+ 
     class Config:
         env_file = ".env"
         case_sensitive = True
-
-# Instantiate settings to be used across the application
+ 
 settings = Settings()

@@ -6,3 +6,4 @@ pydantic-settings==2.1.0
 chromadb>=0.5.0
 beautifulsoup4==4.12.3
 requests==2.31.0
+supabase==2.9.0
