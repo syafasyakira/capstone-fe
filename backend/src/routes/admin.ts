@@ -176,6 +176,7 @@ router.get('/monitoring', async (req: Request, res: Response): Promise<void> => 
 // ── Cache untuk top-issues (hindari rate limit Gemini) ────────
 const topIssuesCache: Record<string, { issues: string[]; cachedAt: number }> = {};
 const TOP_ISSUES_TTL_MS = 10 * 60 * 1000; // cache 10 menit
+const topIssuesInFlight: Record<string, Promise<string[]>> = {}; // deduplikasi request bersamaan
 
 // ── GET /admin/top-issues ─────────────────────────────────────
 // Fix 7: Analyze top issues from chat messages using Gemini
@@ -189,6 +190,13 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
     const cached = topIssuesCache[cacheKey];
     if (cached && Date.now() - cached.cachedAt < TOP_ISSUES_TTL_MS) {
       res.json({ issues: cached.issues, fromCache: true });
+      return;
+    }
+
+    // Deduplikasi: kalau ada request yang sedang jalan, tunggu hasilnya
+    if (topIssuesInFlight[cacheKey]) {
+      const issues = await topIssuesInFlight[cacheKey];
+      res.json({ issues, fromCache: true });
       return;
     }
 
@@ -248,10 +256,10 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
       topIssuesCache[cacheKey] = { issues: result, cachedAt: Date.now() };
       return result;
     }).finally(() => {
-      delete inFlightRequests[cacheKey];
+      delete topIssuesInFlight[cacheKey];
     });
 
-    inFlightRequests[cacheKey] = geminiPromise;
+    topIssuesInFlight[cacheKey] = geminiPromise;
     const result = await geminiPromise;
     res.json({ issues: result });
   } catch (e: any) {
