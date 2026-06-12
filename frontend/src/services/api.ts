@@ -194,6 +194,7 @@ export const getTopIssues = async (month?: number, year?: number): Promise<strin
   if (year !== undefined) params.set('year', String(year));
   const res = await fetch(`${API_BASE_URL}/api/admin/top-issues?${params}`, {
     headers: getAuthHeaders(),
+    cache: 'no-store',
   });
   if (!res.ok) return [];
   const data = await res.json();
