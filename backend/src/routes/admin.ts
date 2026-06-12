@@ -14,6 +14,9 @@ router.use(requireRole('admin'));
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL_ID || 'gemini-3-flash-preview';
 
+// Dedup: track in-flight top-issues requests per cache key
+const inFlightRequests: Record<string, Promise<string[]>> = {};
+
 // ── GET /admin/users ──────────────────────────────────────────
 router.get('/users', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -189,6 +192,13 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
+    // Dedup: kalau ada request yang sama sedang diproses, tunggu hasilnya
+    if (inFlightRequests[cacheKey]) {
+      const issues = await inFlightRequests[cacheKey];
+      res.json({ issues, fromDedup: true });
+      return;
+    }
+
     // Ambil pesan-pesan user dalam periode ini
     let chatQuery = supabaseAdmin.from('chats').select('id');
     if (month && year) {
@@ -220,29 +230,30 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // Kirim ke Gemini untuk dianalisis
+    // Kirim ke Gemini untuk dianalisis (wrapped dalam promise untuk dedup)
     const messagesText = messages.slice(0, 100).map((m: any) => `- ${m.content}`).join('\n');
     const prompt = `Berikut adalah kumpulan pesan dari pengguna yang menghubungi support Epson:\n\n${messagesText}\n\nAnalisis dan identifikasi 5 masalah atau keluhan yang paling sering muncul. Kembalikan HANYA array JSON berisi 5 string singkat (maks 6 kata per item), tanpa penjelasan tambahan. Contoh: ["Printer tidak bisa mencetak", "Tinta cepat habis", "Driver tidak terdeteksi", "Kertas tersangkut", "Kualitas cetak buruk"]`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
     console.log(`[top-issues] Calling Gemini with model: ${GEMINI_MODEL}`);
-    const geminiRes = await axios.post(geminiUrl, {
+
+    const geminiPromise = axios.post(geminiUrl, {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 300 },
-    }, { timeout: 20000 });
-
-    const text = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-    console.log(`[top-issues] Gemini raw response: ${text.substring(0, 200)}`);
-    // Parse JSON dari response
-    const match = text.match(/\[[\s\S]*\]/);
-    if (match) {
-      const issues = JSON.parse(match[0]);
-      const result = Array.isArray(issues) ? issues.slice(0, 5) : [];
+    }, { timeout: 20000 }).then((geminiRes) => {
+      const text = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+      console.log(`[top-issues] Gemini raw response: ${text.substring(0, 200)}`);
+      const match = text.match(/\[[\s\S]*\]/);
+      const result = match ? (JSON.parse(match[0]) as string[]).slice(0, 5) : [];
       topIssuesCache[cacheKey] = { issues: result, cachedAt: Date.now() };
-      res.json({ issues: result });
-    } else {
-      res.json({ issues: [] });
-    }
+      return result;
+    }).finally(() => {
+      delete inFlightRequests[cacheKey];
+    });
+
+    inFlightRequests[cacheKey] = geminiPromise;
+    const result = await geminiPromise;
+    res.json({ issues: result });
   } catch (e: any) {
     console.error('❌ Top Issues Error:', e.message);
     // Fallback: pakai judul chat supaya tetap ada data meski Gemini rate limit
