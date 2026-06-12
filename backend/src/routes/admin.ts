@@ -196,19 +196,20 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
       const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
       chatQuery = chatQuery.gte('created_at', startDate).lte('created_at', endDate);
     }
-    const { data: chats } = await chatQuery;
+    const { data: chats, error: chatError } = await chatQuery;
+    console.log(`[top-issues] month=${month} year=${year} chats found=${chats?.length} error=${chatError?.message}`);
     if (!chats || chats.length === 0) { res.json({ issues: [] }); return; }
 
     const chatIds = chats.map((c: any) => c.id);
 
     // Ambil pesan user saja (bukan bot/cs)
-    const { data: messages } = await supabaseAdmin
+    const { data: messages, error: msgError } = await supabaseAdmin
       .from('messages')
       .select('content')
       .in('chat_id', chatIds)
       .eq('role', 'user')
-      .limit(200); // batasi untuk performa
-
+      .limit(200);
+    console.log(`[top-issues] messages found=${messages?.length} error=${msgError?.message}`);
     if (!messages || messages.length === 0) { res.json({ issues: [] }); return; }
 
     if (!GEMINI_API_KEY) {
