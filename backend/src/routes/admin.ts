@@ -47,16 +47,8 @@ router.post('/users', async (req: Request, res: Response): Promise<void> => {
     if (authError) { res.status(400).json({ error: `Gagal membuat pengguna: ${authError.message}` }); return; }
 
     const userId = authData.user.id;
-
-    // Insert profile
     const { error: profileError } = await supabaseAdmin.from('profiles').insert({ id: userId, email, full_name, role });
     if (profileError && !profileError.message.includes('duplicate')) { res.status(500).json({ error: 'Gagal membuat profil.' }); return; }
-
-    // Force update role to ensure correct value (workaround for Supabase default)
-    await supabaseAdmin.from('profiles').update({ role }).eq('id', userId);
-
-    // Also update user_metadata in auth
-    await supabaseAdmin.auth.admin.updateUserById(userId, { user_metadata: { full_name, role } });
 
     res.status(201).json({ message: 'Pengguna berhasil dibuat.', user: { id: userId, email, full_name, role } });
   } catch (e: any) { res.status(500).json({ error: 'Terjadi kesalahan pada server.' }); }
@@ -178,12 +170,24 @@ router.get('/monitoring', async (req: Request, res: Response): Promise<void> => 
   }
 });
 
+// ── Cache untuk top-issues (hindari rate limit Gemini) ────────
+const topIssuesCache: Record<string, { issues: string[]; cachedAt: number }> = {};
+const TOP_ISSUES_TTL_MS = 10 * 60 * 1000; // cache 10 menit
+
 // ── GET /admin/top-issues ─────────────────────────────────────
 // Fix 7: Analyze top issues from chat messages using Gemini
 router.get('/top-issues', async (req: Request, res: Response): Promise<void> => {
   try {
     const month = req.query.month ? parseInt(req.query.month as string) : null;
     const year = req.query.year ? parseInt(req.query.year as string) : null;
+
+    // Cek cache dulu sebelum panggil Gemini
+    const cacheKey = `${month ?? 'all'}-${year ?? 'all'}`;
+    const cached = topIssuesCache[cacheKey];
+    if (cached && Date.now() - cached.cachedAt < TOP_ISSUES_TTL_MS) {
+      res.json({ issues: cached.issues, fromCache: true });
+      return;
+    }
 
     // Ambil pesan-pesan user dalam periode ini
     let chatQuery = supabaseAdmin.from('chats').select('id');
@@ -230,13 +234,33 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
     const match = text.match(/\[[\s\S]*\]/);
     if (match) {
       const issues = JSON.parse(match[0]);
-      res.json({ issues: Array.isArray(issues) ? issues.slice(0, 5) : [] });
+      const result = Array.isArray(issues) ? issues.slice(0, 5) : [];
+      topIssuesCache[cacheKey] = { issues: result, cachedAt: Date.now() };
+      res.json({ issues: result });
     } else {
       res.json({ issues: [] });
     }
   } catch (e: any) {
     console.error('❌ Top Issues Error:', e.message);
-    res.json({ issues: [] }); // graceful fallback
+    // Fallback: pakai judul chat supaya tetap ada data meski Gemini rate limit
+    try {
+      let chatQuery2 = supabaseAdmin.from('chats').select('id, title');
+      const month2 = req.query.month ? parseInt(req.query.month as string) : null;
+      const year2 = req.query.year ? parseInt(req.query.year as string) : null;
+      if (month2 && year2) {
+        const startDate = new Date(year2, month2 - 1, 1).toISOString();
+        const endDate = new Date(year2, month2, 0, 23, 59, 59).toISOString();
+        chatQuery2 = chatQuery2.gte('created_at', startDate).lte('created_at', endDate);
+      }
+      const { data: fallbackChats } = await chatQuery2.limit(50);
+      const issues = (fallbackChats || [])
+        .map((c: any) => c.title)
+        .filter(Boolean)
+        .slice(0, 5);
+      res.json({ issues, fromFallback: true });
+    } catch {
+      res.json({ issues: [] });
+    }
   }
 });
 
