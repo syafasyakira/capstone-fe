@@ -225,12 +225,14 @@ router.get('/top-issues', async (req: Request, res: Response): Promise<void> => 
     const prompt = `Berikut adalah kumpulan pesan dari pengguna yang menghubungi support Epson:\n\n${messagesText}\n\nAnalisis dan identifikasi 5 masalah atau keluhan yang paling sering muncul. Kembalikan HANYA array JSON berisi 5 string singkat (maks 6 kata per item), tanpa penjelasan tambahan. Contoh: ["Printer tidak bisa mencetak", "Tinta cepat habis", "Driver tidak terdeteksi", "Kertas tersangkut", "Kualitas cetak buruk"]`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    console.log(`[top-issues] Calling Gemini with model: ${GEMINI_MODEL}`);
     const geminiRes = await axios.post(geminiUrl, {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 300 },
     }, { timeout: 20000 });
 
     const text = geminiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    console.log(`[top-issues] Gemini raw response: ${text.substring(0, 200)}`);
     // Parse JSON dari response
     const match = text.match(/\[[\s\S]*\]/);
     if (match) {
